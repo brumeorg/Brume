@@ -1,0 +1,17 @@
+<div class="warn-summary" th:fragment="content(warningSummary)" xmlns:th="http://www.thymeleaf.org">
+    <a href="#wb-batch">
+        <div class="lab">Lots en erreur</div>
+        <div class="n err" th:text="${warningSummary.batchErrorsCount}">0</div>
+        <div class="desc" th:text="${warningSummary.batchErrorsDesc}">desc</div>
+    </a>
+    <a href="#wb-ddl">
+        <div class="lab">DDL ignorés</div>
+        <div class="n warn" th:text="${warningSummary.ddlIgnoredCount}">0</div>
+        <div class="desc" th:text="${warningSummary.ddlIgnoredDesc}">desc</div>
+    </a>
+    <a href="#wb-conf">
+        <div class="lab">Conflits d'unicité</div>
+        <div class="n warn" th:text="${warningSummary.conflictsCount}">0</div>
+        <div class="desc" th:text="${warningSummary.conflictsDesc}">desc</div>
+    </a>
+</div>

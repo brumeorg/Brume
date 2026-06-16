@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Brume logback configuration. See ADR-0030.
+
+  Output mode is selected by the system property brume.output.mode (set pre-boot in
+  BrumeApplication.applyOutputModeFlags from the json CLI flag; defaults to TEXT).
+
+  Two appenders are attached to root; OutputModeFilter gates each one so only the
+  active mode's appender produces output:
+
+    TEXT mode -> STDOUT_TEXT  (stdout, human-readable pattern)
+    JSON mode -> STDERR_JSON  (stderr, line-delimited JSON via BrumeJsonEncoder)
+
+  The brume.output logger is dedicated to user-facing run results in TEXT mode and is
+  kept at INFO with additivity=false so it remains visible even when quiet mode lowers
+  the root level. In JSON mode this logger is not used; ReplicationAgent emits the
+  result wrapper directly on stdout via System.out.println.
+-->
+<configuration>
+
+    <appender name="STDOUT_TEXT" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.out</target>
+        <filter class="com.fungle.brume.output.OutputModeFilter">
+            <activeWhen>TEXT</activeWhen>
+        </filter>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%logger{36}] %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="STDERR_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <filter class="com.fungle.brume.output.OutputModeFilter">
+            <activeWhen>JSON</activeWhen>
+        </filter>
+        <encoder class="com.fungle.brume.output.BrumeJsonEncoder"/>
+    </appender>
+
+    <!-- Dedicated logger for the user-facing run result (TEXT mode). additivity=false keeps
+         the report out of the root pipeline so `-q` (which lowers root to ERROR) still
+         lets the report through. -->
+    <logger name="brume.output" level="INFO" additivity="false">
+        <appender-ref ref="STDOUT_TEXT"/>
+    </logger>
+
+    <!-- Datafaker is verbose at INFO; pin it to WARN by default. -->
+    <logger name="net.datafaker" level="WARN"/>
+
+    <!-- Suppress Hikari pool init/shutdown messages. -->
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT_TEXT"/>
+        <appender-ref ref="STDERR_JSON"/>
+    </root>
+
+</configuration>

@@ -1,0 +1,9 @@
+<th:block th:fragment="content(callouts)" xmlns:th="http://www.thymeleaf.org">
+    <div class="callout" th:each="callout, iter : ${callouts}"
+         th:classappend="${callout.level == 'warn'} ? ' warn' : ''"
+         th:style="${iter.index > 0} ? 'margin-top: 10px' : ''"
+         role="alert">
+        <span class="tag" th:text="${callout.tag}">À résoudre</span>
+        <div class="msg" th:text="${callout.message}">Message du callout.</div>
+    </div>
+</th:block>

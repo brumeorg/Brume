@@ -1,0 +1,182 @@
+# brume.yml — Brume pseudonymization configuration
+
+extraction:
+  fk_depth: 3       # Resolve up to 3 FK parent and child levels
+  fetch_size: 1000
+  batch_size: 500
+  chunk_size: 10000
+  tables:
+    # Partial extraction: only 2025 orders are extracted
+    # FkParentResolver will resolve: users, managers of users, products
+    - table: orders
+      filter: "created_at >= '2025-01-01' AND total_amount > 0"
+
+    # order_items from extracted orders only (implicit FK filter)
+    - table: order_items
+      filter:
+
+    # audit_logs: all rows (no filter) -- email link via linked_columns
+    - table: audit_logs
+      filter:
+
+anonymization:
+  linked_columns:
+    # users.email <-> audit_logs.user_email -> same fake value in both tables
+    - semantic_key: user_email
+      columns:
+        - table: users
+          column: email
+        - table: audit_logs
+          column: user_email
+
+    # users.ip_address <-> audit_logs.ip_address -> same masked IP
+    - semantic_key: user_ip
+      columns:
+        - table: users
+          column: ip_address
+        - table: audit_logs
+          column: ip_address
+
+  tables:
+    # -----------------------------------------------------------------------
+    # users -- all SemanticTypes + FPE_ID + JSONB + NULLIFY
+    # -----------------------------------------------------------------------
+    - table: users
+      columns:
+        - name: id
+          strategy: FPE_ID
+          # -> automatic propagation to orders.user_id (child FK)
+
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+
+        - name: phone
+          strategy: MASK
+          type: PHONE
+
+        - name: iban
+          strategy: HASH
+          type: IBAN
+
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+
+        - name: address_json
+          strategy: FAKE
+          type: JSONB
+          json_paths:
+            - path: "$.street"
+              type: ADDRESS
+              strategy: FAKE
+            - path: "$.city"
+              type: ADDRESS
+              strategy: MASK
+            - path: "$.zip"
+              type: ADDRESS
+              strategy: HASH
+
+        - name: manager_id
+          strategy: NULLIFY
+
+    # -----------------------------------------------------------------------
+    # products -- HASH name, KEEP description, MASK ip_address, FPE_ID id
+    # -----------------------------------------------------------------------
+    - table: products
+      columns:
+        - name: id
+          strategy: FPE_ID
+
+        - name: name
+          strategy: HASH
+
+        - name: description
+          strategy: KEEP
+
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+
+    # -----------------------------------------------------------------------
+    # orders -- FPE_ID (propagated user_id), ADDRESS, KEEP total_amount, NULLIFY notes
+    # -----------------------------------------------------------------------
+    - table: orders
+      columns:
+        - name: id
+          strategy: FPE_ID
+
+        - name: user_id
+          strategy: FPE_ID
+          # Must produce the same encrypted value as the corresponding users.id
+
+        - name: shipping_address
+          strategy: FAKE
+          type: ADDRESS
+
+        - name: total_amount
+          strategy: KEEP
+
+        - name: notes
+          strategy: NULLIFY
+
+    # -----------------------------------------------------------------------
+    # order_items -- FPE_ID on all FKs + KEEP quantity
+    # -----------------------------------------------------------------------
+    - table: order_items
+      columns:
+        - name: id
+          strategy: FPE_ID
+
+        - name: order_id
+          strategy: FPE_ID
+
+        - name: product_id
+          strategy: FPE_ID
+
+        - name: quantity
+          strategy: KEEP
+
+    # -----------------------------------------------------------------------
+    # audit_logs -- FAKE EMAIL (linked), HASH action, MASK IP, deep JSONB
+    # -----------------------------------------------------------------------
+    - table: audit_logs
+      columns:
+        - name: id
+          strategy: FPE_ID
+
+        - name: user_email
+          strategy: FAKE
+          type: EMAIL
+          # linked_columns -> same fake value as users.email
+
+        - name: action
+          strategy: HASH
+
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+          # linked_columns -> same masked value as users.ip_address
+
+        - name: payload
+          strategy: FAKE
+          type: JSONB
+          json_paths:
+            - path: "$.user.email"
+              type: EMAIL
+              strategy: FAKE
+            - path: "$.user.session.token"
+              type: IBAN
+              strategy: HASH
+            - path: "$.metadata.source"
+              type: IP_ADDRESS
+              strategy: MASK
+

@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: brume
+  threads:
+    virtual:
+      enabled: true
+brume:
+  config-path: config.yaml
+  hmac-secret: secret1234
+  fpe-key: secret123456secret123
+  hmac-algorithm: HmacSHA256
+  faker-locale: fr
+  report:
+    json-file: "reports/brume-execution-report.json"   # Set to "" to disable JSON output
+    html-file: "reports/brume-execution-report.html"   # Set to "" to disable HTML output
+    plan-html-file: "reports/brume-plan-report.html"   # Set to "" to disable plan HTML output
+replication:
+  pgdump-path: pg_dump
+  source:
+    url: jdbc:postgresql://localhost:5432/postgres
+    username: postgres
+    password: postgres
+  target:
+    url: jdbc:postgresql://localhost:5460/postgres
+    username: postgres
+    password: postgres
+  schema: test_brume  # Schéma de test (voir scripts/) — changer en 'events' pour la prod
+logging:
+  level:
+    com.fungle.brume: DEBUG

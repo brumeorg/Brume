@@ -1,0 +1,18 @@
+<section class="hero" th:fragment="content(hero)"
+         th:classappend="${hero.statusClass}"
+         aria-label="Statut du run" xmlns:th="http://www.thymeleaf.org">
+    <div class="left">
+        <div class="badge" th:text="${hero.badgeText}">Statut</div>
+        <h1 th:text="${hero.headline}">Run terminé.</h1>
+        <p class="lede" th:text="${hero.lede}">Lede prose.</p>
+    </div>
+    <div class="right">
+        <div class="duration" th:text="${hero.durationCompact}">4:23.4 s</div>
+        <div class="duration-label">temps total</div>
+        <div class="duration-detail">
+            démarré&nbsp;<span th:text="${hero.startedAt}">14:32:17</span>
+            ·&nbsp;terminé&nbsp;<span th:text="${hero.finishedAt}">14:36:40</span><br>
+            débit moyen <span th:text="${hero.throughputAvg}">259k lignes/s</span>
+        </div>
+    </div>
+</section>

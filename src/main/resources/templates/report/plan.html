@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{report/fragments/common :: head(${title}, ${cssContent})}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Madar — Plan d'exécution</title>
+    <style></style>
+</head>
+<body>
+<main class="page">
+
+    <!-- ============================================================ tab radios -->
+    <input type="radio" name="madar-tab" id="t-overview" checked />
+    <input type="radio" name="madar-tab" id="t-tables" />
+    <input type="radio" name="madar-tab" id="t-warnings" />
+
+    <!-- ============================================================ masthead -->
+    <th:block th:replace="~{report/fragments/plan-masthead-v2 :: content(${masthead})}"></th:block>
+
+    <!-- ============================================================ hero -->
+    <th:block th:replace="~{report/fragments/plan-hero-v2 :: content(${hero})}"></th:block>
+
+    <!-- ============================================================ meta strip -->
+    <th:block th:replace="~{report/fragments/plan-meta-v2 :: content(${metaStrip})}"></th:block>
+
+    <!-- ============================================================ tabbar -->
+    <nav class="tabbar" role="tablist">
+        <label for="t-overview">Synthèse</label>
+        <label for="t-tables">Tables&nbsp;<span class="pill-n" th:text="${#lists.size(tableRowsV2)}">0</span></label>
+        <label for="t-warnings">Avertissements&nbsp;<span class="pill-n warn" th:text="${#lists.size(warningBlocksV2)}">0</span></label>
+    </nav>
+
+    <!-- ============================================================ pane: overview -->
+    <section class="pane" id="p-overview" data-print-title="Synthèse">
+
+        <th:block th:replace="~{report/fragments/plan-stat-row :: content(${statRow})}"></th:block>
+
+        <div class="sec-head" th:if="${not #lists.isEmpty(callouts)}">
+            <h2 class="sec">Décision</h2>
+            <p class="sec-sub">Ce que ce plan implique avant <code>madar execute</code>.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/plan-callouts :: content(${callouts})}"></th:block>
+
+    </section>
+
+    <!-- ============================================================ pane: tables -->
+    <section class="pane" id="p-tables" data-print-title="Tables planifiées">
+
+        <div class="sec-head">
+            <h2 class="sec">Tables planifiées</h2>
+            <p class="sec-sub">Dans l'ordre du pipeline. Volumes estimés depuis <code>pg_class.reltuples</code> + lignes amenées par FK parent resolver.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/plan-tables-v2 :: content(${tableRowsV2})}"></th:block>
+
+    </section>
+
+    <!-- ============================================================ pane: warnings -->
+    <section class="pane" id="p-warnings" data-print-title="Avertissements">
+
+        <div class="sec-head">
+            <h2 class="sec">PII &amp; quasi-identifiants</h2>
+            <p class="sec-sub">Détections heuristiques par pattern, basées sur la config Madar. Voir la body-note du bloc pour la définition.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/plan-warning-list :: content(${warningBlocksV2})}"></th:block>
+
+    </section>
+
+    <!-- ============================================================ footer -->
+    <th:block th:replace="~{report/fragments/plan-footer-v2 :: content(${footerV2})}"></th:block>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# test-config-ddl-edge.yaml — Config for DdlReplicationIT (#27 / A16)
+#
+# Minimal anonymization config — the test focuses on DDL replication of
+# exotic objects (enums, sequences, views, materialized views, functions,
+# triggers, partial indexes, comments), not on data anonymization.
+#
+# The fixture schema `test_brume_ddl_edge` is created programmatically by
+# the IT before each test, and dropped afterwards. Only the `invoices`
+# table is declared for extraction so the pipeline can complete.
+
+extraction:
+  fk_depth: 3
+  fetch_size: 25
+  batch_size: 100
+  tables:
+    - table: invoices
+
+anonymization:
+  tables:
+    - table: invoices
+      columns:
+        - name: customer_email
+          strategy: FAKE
+          type: EMAIL

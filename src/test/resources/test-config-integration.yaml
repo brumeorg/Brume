@@ -1,0 +1,102 @@
+# test-config-integration.yaml — Integration test config for Phase 4 ExtractionEngineIT
+#
+# Scenario:
+#   1. Extract orders from 2025 only (filter by created_at)
+#   2. Extract order_items linked to those 2025 orders (subquery filter)
+#   3. FkParentResolver should automatically resolve:
+#       - users (FK parent of orders.user_id)
+#       - products (FK parent of order_items.product_id)
+#       - users self-referential chain (manager_id)
+#
+# Expected:
+#   - orders 103-110 present (8 rows from 2025)
+#   - orders 101, 102 absent (2024 — filtered out at extraction AND no child references them)
+#   - users 1-5 present (resolved FKs from orders 103-110)
+#   - products 10-14 present (resolved FKs from filtered order_items)
+#   - topological order: users/products → orders → order_items
+
+extraction:
+  fk_depth: 3
+  fetch_size: 25
+  batch_size: 100
+  tables:
+    - table: orders
+      filter: "created_at >= '2025-01-01'"
+    - table: order_items
+      filter: "order_id IN (SELECT id FROM test_brume.orders WHERE created_at >= '2025-01-01')"
+
+anonymization:
+  tables:
+    - table: users
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+        - name: phone
+          strategy: MASK
+          type: PHONE
+        - name: iban
+          strategy: FAKE
+          type: IBAN
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+        - name: address_json
+          strategy: FAKE
+          type: JSONB
+          json_paths:
+            - path: "$.street"
+              type: ADDRESS
+              strategy: FAKE
+            - path: "$.city"
+              type: ADDRESS
+              strategy: MASK
+            - path: "$.zip"
+              type: ADDRESS
+              strategy: HASH
+        - name: manager_id
+          strategy: NULLIFY
+
+    - table: orders
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: user_id
+          strategy: FPE_ID
+        - name: shipping_address
+          strategy: FAKE
+          type: ADDRESS
+        - name: total_amount
+          strategy: KEEP
+        - name: notes
+          strategy: NULLIFY
+
+    - table: products
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: name
+          strategy: HASH
+        - name: description
+          strategy: KEEP
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+
+    - table: order_items
+      columns:
+        - name: order_id
+          strategy: FPE_ID
+        - name: product_id
+          strategy: FPE_ID
+        - name: quantity
+          strategy: KEEP
+

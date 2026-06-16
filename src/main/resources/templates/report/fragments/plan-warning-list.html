@@ -1,0 +1,39 @@
+<th:block th:fragment="content(warningBlocksV2)" xmlns:th="http://www.thymeleaf.org">
+
+    <details class="warn-block" id="wb-plan-warnings" th:if="${not #lists.isEmpty(warningBlocksV2)}" open>
+        <summary>
+            <span class="summary-title">
+                <span class="title">PII et quasi-identifiants détectés</span>
+                <span class="pill warn">À résoudre</span>
+            </span>
+            <span class="count" th:text="|${#lists.size(warningBlocksV2)} colonne(s)|">N colonnes</span>
+        </summary>
+        <div class="body">
+            <div class="body-note">
+                Détections heuristiques par pattern (config Madar). Les PII n'ont aucune règle
+                d'anonymisation aujourd'hui ; les quasi-identifiants ont une stratégie qui
+                préserve la corrélation (HASH/FPE déterministes, ou KEEP implicite) et peuvent
+                donc permettre une ré-identification combinés à d'autres colonnes.
+            </div>
+            <table class="mini">
+                <thead>
+                <tr>
+                    <th style="width: 90px">Catégorie</th>
+                    <th>Colonne</th>
+                    <th>Détail</th>
+                    <th>Stratégie effective</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${warningBlocksV2}">
+                    <td th:text="${row.category}">PII</td>
+                    <td><code th:text="${row.qualifiedColumn}">users.email</code></td>
+                    <td th:text="${row.detail}">Pattern email</td>
+                    <td th:text="${row.strategy}">—</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </details>
+
+</th:block>

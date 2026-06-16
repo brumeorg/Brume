@@ -1,0 +1,6 @@
+<div class="meta" th:fragment="content(metaStrip)" xmlns:th="http://www.thymeleaf.org">
+    <div><div class="k">Schéma source</div><div class="v" th:text="${metaStrip.sourceSchema}">production_clone</div></div>
+    <div><div class="k">Config</div><div class="v" th:text="${metaStrip.configPath}">eu-pii.yaml</div></div>
+    <div><div class="k">Mode DDL</div><div class="v" th:text="${metaStrip.ddlErrorMode}">LENIENT</div></div>
+    <div><div class="k">Locale Faker</div><div class="v" th:text="${metaStrip.fakerLocale}">fr_FR</div></div>
+</div>

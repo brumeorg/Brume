@@ -1,0 +1,14 @@
+# test-config-minimal.yaml — config without fk_depth/fetch_size/batch_size to test compact constructor defaults
+
+extraction:
+  tables:
+    - table: orders
+      filter:
+
+anonymization:
+  tables:
+    - table: orders
+      columns:
+        - name: id
+          strategy: FPE_ID
+

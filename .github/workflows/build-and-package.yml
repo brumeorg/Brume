@@ -1,0 +1,217 @@
+# .github/workflows/build-and-package.yml
+name: Build & Package Native
+
+on:
+  push:
+    tags:
+      - '*.*'
+
+env:
+  APP_NAME: brume
+  APP_DESC: "Brume is a pseudonymisation tool, that allows you to use coherent data and production data with GDPR compliance"
+  MAINTAINER: "Calgaryp, alexj181"
+  CLOUDSMITH_ORG: brume
+  CLOUDSMITH_APT_REPO: brume
+  CLOUDSMITH_RPM_REPO: brume
+  GH_ORG: brumeorg
+  GH_REPO: Brume
+  TAP_REPO: homebrew-brume
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          native-image-job-reports: 'true'
+
+      - name: Cache Maven
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-maven-
+
+      - name: Build native (AOT + GraalVM)
+        run: ./mvnw -Pnative native:compile -DskipTests
+
+      - name: Prepare dist dir
+        run: mkdir -p dist
+
+      - name: Set version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+
+      - name: Install FPM
+        run: |
+          sudo apt-get install -y ruby ruby-dev build-essential rpm
+          sudo gem install fpm
+
+      - name: Package .deb
+        run: |
+          fpm -s dir -t deb \
+            --name ${{ env.APP_NAME }} \
+            --version ${{ env.VERSION }} \
+            --architecture amd64 \
+            --license "Apache-2.0" \
+            --description "${{ env.APP_DESC }}" \
+            --maintainer "${{ env.MAINTAINER }}" \
+            --package dist/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb \
+            target/${{ env.APP_NAME }}=/usr/bin/${{ env.APP_NAME }}
+
+      - name: Package .rpm
+        run: |
+          fpm -s dir -t rpm \
+            --name ${{ env.APP_NAME }} \
+            --version ${{ env.VERSION }} \
+            --architecture x86_64 \
+            --license "Apache-2.0" \
+            --description "${{ env.APP_DESC }}" \
+            --maintainer "${{ env.MAINTAINER }}" \
+            --package dist/${{ env.APP_NAME }}_${{ env.VERSION }}_x86_64.rpm \
+            target/${{ env.APP_NAME }}=/usr/bin/${{ env.APP_NAME }}
+
+      - name: Package .tar.gz
+        run: |
+          fpm -s dir -t tar \
+            --name ${{ env.APP_NAME }} \
+            --version ${{ env.VERSION }} \
+            --license "Apache-2.0" \
+            --package dist/${{ env.APP_NAME }}_${{ env.VERSION }}_linux_amd64.tar.gz \
+            target/${{ env.APP_NAME }}=/usr/bin/${{ env.APP_NAME }}
+
+      # ← AJOUTÉ : sans ça, le job publish ne trouve pas l'artefact "packages"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: dist/
+
+      - name: Set version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+
+      - name: Install Cloudsmith CLI
+        run: pip install cloudsmith-cli
+
+      - name: Publish .deb → Cloudsmith APT
+        run: |
+          cloudsmith push deb \
+            ${{ env.CLOUDSMITH_ORG }}/${{ env.CLOUDSMITH_APT_REPO }}/any-distro/any-version \
+            dist/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Publish .rpm → Cloudsmith RPM
+        run: |
+          cloudsmith push rpm \
+            ${{ env.CLOUDSMITH_ORG }}/${{ env.CLOUDSMITH_RPM_REPO }}/any-distro/any-version \
+            dist/${{ env.APP_NAME }}_${{ env.VERSION }}_x86_64.rpm
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+      # ← SUPPRIMÉ : étape "Publish .apk" (plus de .apk produit → push en échec)
+
+  # ── Binaires natifs multi-plateformes pour Homebrew ─────────────────
+  build-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux_amd64
+          - os: macos-latest
+            target: darwin_arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+      - name: Build native
+        run: ./mvnw -Pnative native:compile -DskipTests
+      - name: Package tar.gz (binaire à la racine pour Homebrew)
+        run: |
+          mkdir -p dist
+          tar -czf dist/${{ env.APP_NAME }}_${GITHUB_REF_NAME}_${{ matrix.target }}.tar.gz \
+            -C target ${{ env.APP_NAME }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin_${{ matrix.target }}
+          path: dist/*.tar.gz
+
+  # ── GitHub Release + mise à jour du tap Homebrew ────────────────────
+  homebrew:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Set version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          files: dist/*.tar.gz
+      - name: Compute checksums
+        run: |
+          cd dist
+          echo "SHA_LINUX=$(sha256sum ${APP_NAME}_${VERSION}_linux_amd64.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA_ARM=$(sha256sum ${APP_NAME}_${VERSION}_darwin_arm64.tar.gz | cut -d' ' -f1)" >> $GITHUB_ENV
+      - name: Update tap
+        run: |
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/${GH_ORG}/${TAP_REPO}.git tap
+          mkdir -p tap/Formula
+          cat > tap/Formula/${APP_NAME}.rb << EOF
+          class Brume < Formula
+            desc "${APP_DESC}"
+            homepage "https://github.com/${GH_ORG}/${GH_REPO}"
+            version "${VERSION}"
+            license "Apache-2.0"
+            on_macos do
+              on_arm do
+                url "https://github.com/${GH_ORG}/${GH_REPO}/releases/download/${VERSION}/${APP_NAME}_${VERSION}_darwin_arm64.tar.gz"
+                sha256 "${SHA_ARM}"
+              end
+            end
+            on_linux do
+              url "https://github.com/${GH_ORG}/${GH_REPO}/releases/download/${VERSION}/${APP_NAME}_${VERSION}_linux_amd64.tar.gz"
+              sha256 "${SHA_LINUX}"
+            end
+            def install
+              bin.install "${APP_NAME}"
+            end
+            test do
+              system "#{bin}/${APP_NAME}", "--version"
+            end
+          end
+          EOF
+          cd tap
+          git config user.name "CI"
+          git config user.email "ci@brumeorg.dev"
+          git add Formula/${APP_NAME}.rb
+          git commit -m "${APP_NAME} ${VERSION}"
+          git push
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}

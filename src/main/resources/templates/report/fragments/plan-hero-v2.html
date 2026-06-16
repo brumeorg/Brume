@@ -1,0 +1,16 @@
+<section class="hero partial" th:fragment="content(hero)"
+         aria-label="Synthèse du plan" xmlns:th="http://www.thymeleaf.org">
+    <div class="left">
+        <div class="badge" th:text="${hero.badgeText}">Pré-vol — décision go / no-go</div>
+        <h1 th:text="${hero.headline}">N tables planifiées, M lignes estimées.</h1>
+        <p class="lede" th:text="${hero.lede}">Lede prose.</p>
+    </div>
+    <div class="right">
+        <div class="duration"><span th:text="${hero.totalPlanned}">0</span><span class="unit">&nbsp;lignes</span></div>
+        <div class="duration-label">total planifié</div>
+        <div class="duration-detail">
+            <span th:text="${hero.tablesCount}">0</span> table(s)<br>
+            <span th:text="${hero.totalDirect}">0</span> directes · <span th:text="${hero.totalFkChildren}">0</span> FK enfant · <span th:text="${hero.totalFkParents}">0</span> FK parent
+        </div>
+    </div>
+</section>

@@ -1,0 +1,51 @@
+# test-config.yaml — minimal config used by ConfigLoaderTest and ConfigValidatorTest
+
+extraction:
+  fk_depth: 2
+  fetch_size: 50
+  batch_size: 250
+  tables:
+    - table: orders
+      filter: "created_at >= '2025-01-01'"
+    - table: audit_logs
+      filter:
+
+anonymization:
+  linked_columns:
+    - semantic_key: user_email
+      columns:
+        - table: users
+          column: email
+        - table: audit_logs
+          column: user_email
+
+  tables:
+    - table: users
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+        - name: phone
+          strategy: MASK
+          type: PHONE
+        - name: manager_id
+          strategy: NULLIFY
+        - name: address_json
+          strategy: FAKE
+          type: JSONB
+          json_paths:
+            - path: "$.street"
+              type: ADDRESS
+              strategy: FAKE
+
+    - table: orders
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: total_amount
+          strategy: KEEP
+        - name: notes
+          strategy: NULLIFY
+

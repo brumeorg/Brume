@@ -1,0 +1,53 @@
+spring:
+  config:
+    import: optional:dotenv:./.env
+  main:
+    web-application-type: none
+    banner-mode: off
+    log-startup-info: false
+  application:
+    name: brume
+  threads:
+    virtual:
+      enabled: true
+logging:
+  level:
+    com.fungle.brume.writer: DEBUG
+brume:
+  config-path: brume.yml
+  hmac-secret: ${HMAC_SECRET}
+  fpe-key: ${FPE_KEY}
+  hmac-algorithm: ${HMAC_ALGORITHM:HmacSHA256}
+  faker-locale: ${LOCALE:en}
+  pipeline-mode: ${PIPELINE_MODE:STREAMING}
+  # max-batch-error-rate: 0.0    # Maximum allowed batch error rate per table (default: 0.0 = no errors tolerated).
+                                  # Set to 1.0 to tolerate all errors (not recommended).
+  # max-target-rows: 0            # Hard guardrail on planned rows written to the target (0 = disabled).
+                                  # Fails before extraction when the pre-flight plan exceeds this limit.
+  # heap-warning-threshold-percent: 85
+                                  # Warn once when JVM heap usage crosses this percentage of -Xmx.
+  # substitution-dict:
+  #   max-entries: 1000000        # Maximum dictionary size (default: 1M entries).
+                                  # Sized by distinct anonymized values, not raw row count.
+                                  # No eviction strategy: exceeding this limit throws SubstitutionDictionaryOverflowException.
+  sink:
+    type: ${SINK_TYPE:JDBC}
+    output-path: ${SINK_OUTPUT_PATH:}
+    compression: ${SINK_COMPRESSION:GZIP}
+  report:
+    json-file: "reports/brume-execution-report.json"
+    html-file: "reports/brume-execution-report.html"
+    plan-html-file: "reports/brume-plan-report.html"
+replication:
+  pgdump-path: pg_dump
+  # pgdump-timeout-seconds: 300  # Timeout for pg_dump (default: 300s / 5 minutes)
+  # ddl-error-mode: STRICT        # STRICT (fail-fast on DDL error, default) or LENIENT (log and continue)
+  source:
+    url: ${SOURCE_DB_URL}
+    username: ${SOURCE_DB_USERNAME}
+    password: ${SOURCE_DB_PASSWORD}
+  target:
+    url: ${TARGET_DB_URL}
+    username: ${TARGET_DB_USERNAME}
+    password: ${TARGET_DB_PASSWORD}
+  schema: ${SCHEMA}

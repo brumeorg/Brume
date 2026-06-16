@@ -1,0 +1,91 @@
+# test-config-fk-propagation.yaml — Integration test fixture for FkStrategyPropagator
+#
+# Same dataset as test-config-integration.yaml (users / orders / order_items / products) but
+# with FK columns *intentionally* left undeclared. The propagator must inherit the PK strategy
+# automatically so the target stays referentially consistent.
+#
+# What the user declares:
+#   - users.id            FPE_ID  (PK)
+#   - orders.id           FPE_ID  (PK)
+#   - products.id         FPE_ID  (PK)
+#
+# What we do NOT declare (must be propagated by FkStrategyPropagator):
+#   - orders.user_id           ← users.id           (FPE_ID)
+#   - order_items.order_id     ← orders.id          (FPE_ID)
+#   - order_items.product_id   ← products.id        (FPE_ID)
+#   - users.manager_id         ← users.id (self-FK) (FPE_ID auto-propagated)
+#
+# Other columns kept minimal — just enough to keep the pipeline happy without distracting from
+# the FK propagation assertion.
+
+extraction:
+  fk_depth: 3
+  fetch_size: 25
+  batch_size: 100
+  tables:
+    - table: orders
+      filter: "created_at >= '2025-01-01'"
+    - table: order_items
+      filter: "order_id IN (SELECT id FROM test_brume.orders WHERE created_at >= '2025-01-01')"
+
+anonymization:
+  tables:
+    - table: users
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+        - name: phone
+          strategy: MASK
+          type: PHONE
+        - name: iban
+          strategy: FAKE
+          type: IBAN
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+        - name: address_json
+          strategy: FAKE
+          type: JSONB
+          json_paths:
+            - path: "$.street"
+              type: ADDRESS
+              strategy: FAKE
+            - path: "$.city"
+              type: ADDRESS
+              strategy: MASK
+            - path: "$.zip"
+              type: ADDRESS
+              strategy: HASH
+
+    - table: orders
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: shipping_address
+          strategy: FAKE
+          type: ADDRESS
+        - name: total_amount
+          strategy: KEEP
+        - name: notes
+          strategy: NULLIFY
+
+    - table: products
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: name
+          strategy: HASH
+        - name: description
+          strategy: KEEP
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{report/fragments/common :: head(${title}, ${cssContent})}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Madar — Rapport d'exécution</title>
+    <style></style>
+</head>
+<body>
+<main class="page">
+
+    <!-- ============================================================ tab radios
+         Hidden inputs that drive the pure-CSS tabbar (:checked ~ ...).
+         MUST stay as direct siblings of .tabbar and .pane elements below. -->
+    <input type="radio" name="madar-tab" id="t-overview" checked />
+    <input type="radio" name="madar-tab" id="t-tables" />
+    <input type="radio" name="madar-tab" id="t-strategies" />
+    <input type="radio" name="madar-tab" id="t-warnings" />
+
+    <!-- ============================================================ masthead -->
+    <th:block th:replace="~{report/fragments/execution-masthead-v2 :: content(${masthead})}"></th:block>
+
+    <!-- ============================================================ hero -->
+    <th:block th:replace="~{report/fragments/execution-hero-v2 :: content(${hero})}"></th:block>
+
+    <!-- ============================================================ meta strip -->
+    <th:block th:replace="~{report/fragments/execution-meta-v2 :: content(${metaStrip})}"></th:block>
+
+    <!-- ============================================================ tabbar -->
+    <nav class="tabbar" role="tablist">
+        <label for="t-overview">Synthèse</label>
+        <label for="t-tables">Tables&nbsp;<span class="pill-n" th:text="${#lists.size(tableRows)}">0</span></label>
+        <label for="t-strategies">Stratégies&nbsp;<span class="pill-n" th:text="${#lists.size(strategyCards)}">0</span></label>
+        <label for="t-warnings">Avertissements</label>
+    </nav>
+
+    <!-- ============================================================ pane: overview -->
+    <section class="pane" id="p-overview" data-print-title="Synthèse">
+
+        <th:block th:replace="~{report/fragments/execution-stat-row :: content(${statRow})}"></th:block>
+
+        <div class="sec-head">
+            <h2 class="sec">Durées par phase</h2>
+            <p class="sec-sub">Trois phases composent le temps total wall-clock.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/execution-timing-v2 :: content(${timingV2})}"></th:block>
+
+        <div th:if="${hasCallout}">
+            <th:block th:replace="~{report/fragments/execution-callout :: content(${callout})}"></th:block>
+        </div>
+
+    </section>
+
+    <!-- ============================================================ pane: tables -->
+    <section class="pane" id="p-tables" data-print-title="Résultats par table">
+
+        <div class="sec-head">
+            <h2 class="sec">Résultats par table</h2>
+            <p class="sec-sub">Tables traversées par le pipeline, dans l'ordre. Le statut est doublé par un tint de ligne pour rester lisible en monochrome.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/execution-tables-v2 :: content(${tableRows}, ${tableTotals})}"></th:block>
+
+        <!-- Plan vs Réel — fragment V1 conservé (legacy CSS scopée dans report.css). -->
+        <th:block th:if="${hasComparisonSection}">
+            <th:block th:replace="~{report/fragments/comparison :: section(${comparisonSection})}"></th:block>
+        </th:block>
+
+    </section>
+
+    <!-- ============================================================ pane: strategies -->
+    <section class="pane" id="p-strategies" data-print-title="Stratégies &amp; dictionnaire">
+
+        <div class="sec-head">
+            <h2 class="sec">Stratégies appliquées</h2>
+            <p class="sec-sub">Une carte par stratégie de l'enum <code>Strategy</code>, avec le nombre de colonnes effectivement traitées.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/execution-strategies-v2 :: content(${strategyCards}, ${dictV2}, ${hasDictV2})}"></th:block>
+
+    </section>
+
+    <!-- ============================================================ pane: warnings -->
+    <section class="pane" id="p-warnings" data-print-title="Avertissements">
+
+        <div class="sec-head">
+            <h2 class="sec">Avertissements &amp; anomalies</h2>
+            <p class="sec-sub">Trois catégories agrégées depuis <code>ExecutionSummary</code>. Le détail reste limité à ce que Madar capture aujourd'hui.</p>
+        </div>
+
+        <th:block th:replace="~{report/fragments/execution-warning-summary :: content(${warningSummary})}"></th:block>
+
+        <th:block th:replace="~{report/fragments/execution-warning-blocks :: content(${warningBlocks})}"></th:block>
+
+    </section>
+
+    <!-- ============================================================ footer -->
+    <th:block th:replace="~{report/fragments/execution-footer-v2 :: content(${footerV2})}"></th:block>
+
+</main>
+</body>
+</html>

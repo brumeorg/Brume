@@ -1,0 +1,6 @@
+<div class="callout" th:fragment="content(callout)"
+     th:classappend="${callout.level == 'warn'} ? ' warn' : ''"
+     role="alert" xmlns:th="http://www.thymeleaf.org">
+    <span class="tag" th:text="${callout.tag}">Action requise</span>
+    <div class="msg" th:text="${callout.message}">Message du callout.</div>
+</div>

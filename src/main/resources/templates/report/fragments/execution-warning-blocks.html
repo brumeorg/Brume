@@ -1,0 +1,105 @@
+<th:block th:fragment="content(warningBlocks)" xmlns:th="http://www.thymeleaf.org">
+
+    <details class="warn-block" id="wb-batch" th:if="${not #lists.isEmpty(warningBlocks.batchErrors)}" open>
+        <summary>
+            <span class="summary-title">
+                <span class="title">Lots en erreur</span>
+                <span class="pill err">Échec</span>
+            </span>
+            <span class="count" th:text="|${#lists.size(warningBlocks.batchErrors)} table(s)|">1 table</span>
+        </summary>
+        <div class="body">
+            <div class="body-note">
+                Madar ne capture aujourd'hui qu'un compteur de lots échoués par table
+                (<code>TableStats.batchErrors</code>). Le détail de chaque
+                <code>SQLException</code> (colonne, contrainte, valeur fautive) reste à
+                consulter dans les logs.
+            </div>
+            <table class="mini">
+                <thead>
+                <tr>
+                    <th>Table</th>
+                    <th class="num">Lots échoués</th>
+                    <th class="num">Lignes non écrites</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${warningBlocks.batchErrors}">
+                    <td><code th:text="${row.table}">public.payments</code></td>
+                    <td class="num" th:text="${row.batchCount}">0</td>
+                    <td class="num" th:text="${row.unwrittenRows}">0</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </details>
+
+    <details class="warn-block" id="wb-ddl" th:if="${not #lists.isEmpty(warningBlocks.ddlIgnored)}">
+        <summary>
+            <span class="summary-title">
+                <span class="title">DDL ignorés</span>
+                <span class="pill warn">Lenient</span>
+            </span>
+            <span class="count" th:text="|${#lists.size(warningBlocks.ddlIgnored)} statements · mode LENIENT|">N statements</span>
+        </summary>
+        <div class="body">
+            <div class="body-note">
+                Énoncés DDL rejoués depuis le dump qui n'ont pas pu être appliqués sur la
+                cible. En mode <code>LENIENT</code>, Madar les ignore et continue.
+                L'objet est inféré du début du <code>sqlPreview</code>.
+            </div>
+            <table class="mini">
+                <thead>
+                <tr>
+                    <th style="width: 92px">Objet</th>
+                    <th>Énoncé (preview)</th>
+                    <th>Message Postgres</th>
+                    <th style="width: 120px" class="num">Statement</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${warningBlocks.ddlIgnored}">
+                    <td th:text="${row.objectType}">VIEW</td>
+                    <td><code th:text="${row.statementPreview}">CREATE …</code></td>
+                    <td th:text="${row.errorMessage}">erreur</td>
+                    <td class="num" th:text="${row.statementNumber}">#0</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </details>
+
+    <details class="warn-block" id="wb-conf" th:if="${not #lists.isEmpty(warningBlocks.conflicts)}">
+        <summary>
+            <span class="summary-title">
+                <span class="title">Conflits d'unicité</span>
+                <span class="pill warn">Conflit</span>
+            </span>
+            <span class="count" th:text="|${#lists.size(warningBlocks.conflicts)} table(s)|">N tables</span>
+        </summary>
+        <div class="body">
+            <div class="body-note">
+                Madar utilise <code>ON CONFLICT DO NOTHING</code> en global ; la contrainte
+                précise violée n'est pas remontée par table aujourd'hui. Les lignes en collision
+                ne sont simplement pas insérées.
+            </div>
+            <table class="mini">
+                <thead>
+                <tr>
+                    <th>Table</th>
+                    <th class="num">Conflits</th>
+                    <th>Résolution</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${warningBlocks.conflicts}">
+                    <td><code th:text="${row.table}">public.users</code></td>
+                    <td class="num" th:text="${row.conflictCount}">0</td>
+                    <td th:text="${row.resolution}">Lignes droppées par ON CONFLICT DO NOTHING</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </details>
+
+</th:block>

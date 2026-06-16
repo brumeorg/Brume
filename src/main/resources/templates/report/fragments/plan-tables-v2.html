@@ -1,0 +1,31 @@
+<table class="gridtable" th:fragment="content(tableRowsV2)"
+       aria-label="Tables planifiées" xmlns:th="http://www.thymeleaf.org">
+    <thead>
+    <tr>
+        <th class="l">Table</th>
+        <th class="l">Origine</th>
+        <th>Direct</th>
+        <th>via FK enfant</th>
+        <th>via FK parent</th>
+        <th>Total planifié</th>
+        <th class="l">Avertissement</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="row : ${tableRowsV2}">
+        <td class="l tname">
+            <span th:text="${row.table}">public.users</span>
+            <span class="pill fk" th:if="${row.hasFkBadge}">FK</span>
+        </td>
+        <td class="l"><span class="pill info" th:text="${row.originLabel}">direct</span></td>
+        <td th:text="${row.plannedDirect}">0</td>
+        <td th:text="${row.plannedFkChildren}">0</td>
+        <td th:text="${row.plannedFkParents}">0</td>
+        <td th:text="${row.plannedTotal}">0</td>
+        <td class="l">
+            <span class="pill warn" th:if="${row.hasWarning}" th:text="${row.warningPill}">PII × N</span>
+            <span class="pill ok" th:unless="${row.hasWarning}">OK</span>
+        </td>
+    </tr>
+    </tbody>
+</table>

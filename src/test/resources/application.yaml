@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: brume
+  threads:
+    virtual:
+      enabled: true
+brume:
+  config-path: src/test/resources/test-config-integration.yaml
+  hmac-secret: test-secret-1234
+  fpe-key: test-fpesecret01
+  hmac-algorithm: HmacSHA256
+  faker-locale: fr
+  pipeline-mode: STREAMING
+  report:
+    json-file: ""
+    html-file: ""
+replication:
+  pgdump-path: pg_dump
+  source:
+    url: jdbc:postgresql://localhost:5432/postgres
+    username: postgres
+    password: postgres
+  target:
+    url: jdbc:postgresql://localhost:5460/postgres
+    username: postgres
+    password: postgres
+  schema: test_brume
+

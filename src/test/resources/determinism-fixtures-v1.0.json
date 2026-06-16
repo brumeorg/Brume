@@ -1,0 +1,456 @@
+{
+  "schemaVersion" : "1.0",
+  "datafakerVersion" : "2.4.0",
+  "policy" : "V1.0 contract. Modifying any 'expected' here is a breaking change for V1.x — requires a MAJOR SemVer bump. To regenerate after an intentional change: REGEN_DETERMINISM_FIXTURES=1 mvn test -Dtest=DeterminismRegressionTest",
+  "config" : {
+    "hmacSecret" : "test-hmac-secret-deterministic-v1.0-DO-NOT-CHANGE",
+    "hmacAlgorithm" : "HmacSHA256",
+    "fpeKey" : "0123456789abcdef",
+    "fakerLocale" : "fr"
+  },
+  "fixtures" : [ {
+    "id" : "fake-email-typical",
+    "strategy" : "FAKE",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "alice@example.com"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "manon.legall.934b0e@gauthier.org"
+    }
+  }, {
+    "id" : "fake-email-uppercase",
+    "strategy" : "FAKE",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "ALICE@EXAMPLE.COM"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "manon.legall.934b0e@gauthier.org"
+    }
+  }, {
+    "id" : "fake-email-unicode",
+    "strategy" : "FAKE",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "müller@österreich.at"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "nathan.thomas.e037e3@renaud.bzh"
+    }
+  }, {
+    "id" : "fake-first-typical",
+    "strategy" : "FAKE",
+    "type" : "FIRST_NAME",
+    "input" : {
+      "type" : "string",
+      "value" : "Alice"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "Justine"
+    }
+  }, {
+    "id" : "fake-first-unicode",
+    "strategy" : "FAKE",
+    "type" : "FIRST_NAME",
+    "input" : {
+      "type" : "string",
+      "value" : "Müller"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "Maxime"
+    }
+  }, {
+    "id" : "fake-last-typical",
+    "strategy" : "FAKE",
+    "type" : "LAST_NAME",
+    "input" : {
+      "type" : "string",
+      "value" : "Dupont"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "Vidal"
+    }
+  }, {
+    "id" : "fake-last-compound",
+    "strategy" : "FAKE",
+    "type" : "LAST_NAME",
+    "input" : {
+      "type" : "string",
+      "value" : "Van Den Berg"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "Prévost"
+    }
+  }, {
+    "id" : "fake-phone-fr",
+    "strategy" : "FAKE",
+    "type" : "PHONE",
+    "input" : {
+      "type" : "string",
+      "value" : "0612345678"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "05 92 62 39 19"
+    }
+  }, {
+    "id" : "fake-phone-intl",
+    "strategy" : "FAKE",
+    "type" : "PHONE",
+    "input" : {
+      "type" : "string",
+      "value" : "+33-6-78-90-12-34"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "02 19 72 99 01"
+    }
+  }, {
+    "id" : "fake-address-typical",
+    "strategy" : "FAKE",
+    "type" : "ADDRESS",
+    "input" : {
+      "type" : "string",
+      "value" : "12 rue de la Paix, Paris"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "Apt. 727, 6 Allée, Voie Lepic, 29842 Saint-Pierre"
+    }
+  }, {
+    "id" : "fake-address-short",
+    "strategy" : "FAKE",
+    "type" : "ADDRESS",
+    "input" : {
+      "type" : "string",
+      "value" : "1 bd"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "64 Place du Bac, 57620 Poitiers"
+    }
+  }, {
+    "id" : "fake-iban-fr",
+    "strategy" : "FAKE",
+    "type" : "IBAN",
+    "input" : {
+      "type" : "string",
+      "value" : "FR7630006000011234567890189"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "BE15296066848567"
+    }
+  }, {
+    "id" : "fake-iban-de",
+    "strategy" : "FAKE",
+    "type" : "IBAN",
+    "input" : {
+      "type" : "string",
+      "value" : "DE89370400440532013000"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "FO7110810152460965"
+    }
+  }, {
+    "id" : "fake-ip-private",
+    "strategy" : "FAKE",
+    "type" : "IP_ADDRESS",
+    "input" : {
+      "type" : "string",
+      "value" : "192.168.1.42"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "216.75.143.106"
+    }
+  }, {
+    "id" : "fake-ip-loopback",
+    "strategy" : "FAKE",
+    "type" : "IP_ADDRESS",
+    "input" : {
+      "type" : "string",
+      "value" : "10.0.0.1"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "216.177.92.82"
+    }
+  }, {
+    "id" : "hash-iban",
+    "strategy" : "HASH",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "iban-1234-5678"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "077db2873166d760d25197124c2f950faae714a4de005c0365a6417cce9b3c6d"
+    }
+  }, {
+    "id" : "hash-token",
+    "strategy" : "HASH",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "secret-token-abc"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "83c113a2127f88cfdcd8943509d755be490923fb510d1593d3e19f1b55b35f0b"
+    }
+  }, {
+    "id" : "hash-short",
+    "strategy" : "HASH",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "Voldemort"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "62639486cdf4b1876fc8725e57037961cb2c09fad06d637a310fb030ad4ddab4"
+    }
+  }, {
+    "id" : "hash-empty",
+    "strategy" : "HASH",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : ""
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "71a9a3e1ab32db961f8c829e3baad61b34f968f57688494994c20db0e384ca61"
+    }
+  }, {
+    "id" : "hash-unicode",
+    "strategy" : "HASH",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "🔐 unicode 漢字"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "d63c10daa9349cbd412e6b5512dec566cdd676435a21c969ec16724e3d42b0c2"
+    }
+  }, {
+    "id" : "fpeid-zero",
+    "strategy" : "FPE_ID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "long",
+      "value" : "0"
+    },
+    "expected" : {
+      "type" : "long",
+      "value" : "1052068199"
+    }
+  }, {
+    "id" : "fpeid-one",
+    "strategy" : "FPE_ID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "long",
+      "value" : "1"
+    },
+    "expected" : {
+      "type" : "long",
+      "value" : "12227206"
+    }
+  }, {
+    "id" : "fpeid-typical",
+    "strategy" : "FPE_ID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "long",
+      "value" : "12345"
+    },
+    "expected" : {
+      "type" : "long",
+      "value" : "1977275239"
+    }
+  }, {
+    "id" : "fpeid-int-max",
+    "strategy" : "FPE_ID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "long",
+      "value" : "2147483647"
+    },
+    "expected" : {
+      "type" : "long",
+      "value" : "810606478"
+    }
+  }, {
+    "id" : "fpeid-decimal18-low",
+    "strategy" : "FPE_ID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "long",
+      "value" : "2147483648"
+    },
+    "expected" : {
+      "type" : "long",
+      "value" : "669670335384499127"
+    }
+  }, {
+    "id" : "fpeid-decimal18-max",
+    "strategy" : "FPE_ID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "long",
+      "value" : "999999999999999999"
+    },
+    "expected" : {
+      "type" : "long",
+      "value" : "916190997715510029"
+    }
+  }, {
+    "id" : "fpeuuid-typical",
+    "strategy" : "FPE_UUID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "550e8400-e29b-41d4-a716-446655440000"
+    },
+    "expected" : {
+      "type" : "uuid",
+      "value" : "d812e7ac-b87b-40e4-9888-743ec5975671"
+    }
+  }, {
+    "id" : "fpeuuid-zero",
+    "strategy" : "FPE_UUID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "00000000-0000-0000-0000-000000000000"
+    },
+    "expected" : {
+      "type" : "uuid",
+      "value" : "4ec178b9-c553-490e-9209-79fbdc1f7d9e"
+    }
+  }, {
+    "id" : "fpeuuid-uppercase",
+    "strategy" : "FPE_UUID",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "550E8400-E29B-41D4-A716-446655440000"
+    },
+    "expected" : {
+      "type" : "uuid",
+      "value" : "d812e7ac-b87b-40e4-9888-743ec5975671"
+    }
+  }, {
+    "id" : "mask-phone-typical",
+    "strategy" : "MASK",
+    "type" : "PHONE",
+    "input" : {
+      "type" : "string",
+      "value" : "0612345678"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "061*****78"
+    }
+  }, {
+    "id" : "mask-phone-short",
+    "strategy" : "MASK",
+    "type" : "PHONE",
+    "input" : {
+      "type" : "string",
+      "value" : "12345"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "*****"
+    }
+  }, {
+    "id" : "mask-ip-typical",
+    "strategy" : "MASK",
+    "type" : "IP_ADDRESS",
+    "input" : {
+      "type" : "string",
+      "value" : "192.168.1.42"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "192.168.*.*"
+    }
+  }, {
+    "id" : "mask-ip-short",
+    "strategy" : "MASK",
+    "type" : "IP_ADDRESS",
+    "input" : {
+      "type" : "string",
+      "value" : "1.2"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "1.2.*.*"
+    }
+  }, {
+    "id" : "mask-default-email",
+    "strategy" : "MASK",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "alice@example.com"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "a***"
+    }
+  }, {
+    "id" : "mask-default-single",
+    "strategy" : "MASK",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "x"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "x***"
+    }
+  }, {
+    "id" : "nullify-any",
+    "strategy" : "NULLIFY",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "secret-value"
+    },
+    "expected" : {
+      "type" : "null",
+      "value" : null
+    }
+  }, {
+    "id" : "keep-any",
+    "strategy" : "KEEP",
+    "type" : "EMAIL",
+    "input" : {
+      "type" : "string",
+      "value" : "preserve-me-verbatim"
+    },
+    "expected" : {
+      "type" : "string",
+      "value" : "preserve-me-verbatim"
+    }
+  } ]
+}

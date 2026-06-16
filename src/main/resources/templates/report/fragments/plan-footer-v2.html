@@ -1,0 +1,14 @@
+<footer class="foot" th:fragment="content(footer)" xmlns:th="http://www.thymeleaf.org">
+    <div class="fstat">
+        <div class="k">Source</div>
+        <div class="v">plan estimé</div>
+    </div>
+    <div class="fstat">
+        <div class="k">Pipeline</div>
+        <div class="v">pré-vol, pas d'écriture</div>
+    </div>
+    <div class="end">
+        madar plan · <b th:text="${footer.brumeVersion}">v0.14.2</b><br>
+        estimé <span th:text="${footer.estimatedAt}">2026-05-13 14:30:00 UTC</span>
+    </div>
+</footer>

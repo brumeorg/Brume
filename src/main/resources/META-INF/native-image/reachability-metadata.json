@@ -1,0 +1,14 @@
+{
+  "reflection": [
+    { "type": "net.datafaker.Faker" },
+    {
+      "type": "net.datafaker.providers.base.BaseProviders",
+      "methods": [ { "name": "name", "parameterTypes": [] } ]
+    },
+    {
+      "type": "net.datafaker.providers.base.Name",
+      "methods": [ { "name": "femaleFirstName", "parameterTypes": [] } ]
+    }
+  ],
+  "resources": []
+}

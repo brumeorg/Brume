@@ -1,0 +1,221 @@
+{
+  "$schema" : "https://json-schema.org/draft/2020-12/schema",
+  "$id" : "https://github.com/fungle/brume/blob/main/src/main/resources/config-v1.0.schema.json",
+  "title" : "Brume anonymizer config",
+  "description" : "JSON Schema for the user-facing Brume anonymizer config file (commonly named config.yaml). Bound to com.fungle.brume.config.model.AnonymizerConfig.",
+  "version" : "1.0",
+  "$defs" : {
+    "AnonymizationConfig" : {
+      "type" : "object",
+      "properties" : {
+        "linked_columns" : {
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/LinkedColumnsConfig"
+          },
+          "description" : "Cross-table column groups that must produce the same anonymized value for the same input."
+        },
+        "tables" : {
+          "description" : "Per-table anonymization rules (one entry per table; columns listed inside).",
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/TableAnonymizationConfig"
+          }
+        }
+      },
+      "description" : "Cross-table column linkages and per-table, per-column anonymization rules.",
+      "additionalProperties" : false
+    },
+    "AnonymizationConfig-nullable" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/AnonymizationConfig"
+      } ]
+    },
+    "ColumnConfig" : {
+      "type" : "object",
+      "properties" : {
+        "json_paths" : {
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/JsonPathConfig"
+          },
+          "description" : "Per-path anonymization rules for this column. Required when type=JSONB; ignored otherwise."
+        },
+        "name" : {
+          "type" : [ "string", "null" ],
+          "description" : "Column name as it appears in the database schema."
+        },
+        "strategy" : {
+          "$ref" : "#/$defs/Strategy-nullable",
+          "description" : "Anonymization strategy to apply to this column."
+        },
+        "type" : {
+          "$ref" : "#/$defs/SemanticType-nullable",
+          "description" : "Semantic type — required when strategy=FAKE, optional/ignored for HASH/NULLIFY/KEEP/FPE_ID/FPE_UUID. Use JSONB to anonymize specific paths inside a JSON column (see json_paths)."
+        }
+      },
+      "description" : "Anonymization rule for a single column. The 'type' field is required when strategy=FAKE.",
+      "additionalProperties" : false
+    },
+    "ColumnReference" : {
+      "type" : "object",
+      "properties" : {
+        "column" : {
+          "type" : [ "string", "null" ],
+          "description" : "Column name within that table."
+        },
+        "table" : {
+          "type" : [ "string", "null" ],
+          "description" : "Table name (unqualified, same schema as the rest of the config)."
+        }
+      },
+      "description" : "Reference to a column by (table, column) name. Used inside linked_columns.",
+      "additionalProperties" : false
+    },
+    "ExtractionConfig" : {
+      "type" : "object",
+      "properties" : {
+        "batch_size" : {
+          "type" : "integer",
+          "description" : "Number of rows per INSERT batch on the target. Default: 1000."
+        },
+        "chunk_size" : {
+          "type" : "integer",
+          "description" : "Number of rows processed in memory per streaming chunk. Default: 10000."
+        },
+        "fetch_size" : {
+          "type" : "integer",
+          "description" : "JDBC cursor fetch size used during streaming reads from the source. Default: 1000."
+        },
+        "fk_depth" : {
+          "type" : "integer",
+          "description" : "Maximum FK parent levels to resolve automatically when a row's parent is missing from the extracted set. 1 = direct parents only. Default: 3."
+        },
+        "tables" : {
+          "description" : "Tables to extract. Each entry may carry an optional WHERE filter. Tables not listed are only extracted if they are FK parents of a listed table.",
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/TableExtractionConfig"
+          }
+        }
+      },
+      "description" : "Which tables to read from the source database and how — FK propagation depth, batch sizes, and per-table filters.",
+      "additionalProperties" : false
+    },
+    "ExtractionConfig-nullable" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/ExtractionConfig"
+      } ]
+    },
+    "JsonPathConfig" : {
+      "type" : "object",
+      "properties" : {
+        "path" : {
+          "type" : [ "string", "null" ],
+          "description" : "JSONPath expression starting with $ — e.g. \"$.user.email\" or \"$.metadata.session.token\"."
+        },
+        "strategy" : {
+          "$ref" : "#/$defs/Strategy-nullable",
+          "description" : "Anonymization strategy applied to that field."
+        },
+        "type" : {
+          "$ref" : "#/$defs/SemanticType-nullable",
+          "description" : "Semantic type of the targeted JSON field."
+        }
+      },
+      "description" : "Anonymization rule for one path inside a JSONB column.",
+      "additionalProperties" : false
+    },
+    "LinkedColumnsConfig" : {
+      "type" : "object",
+      "properties" : {
+        "columns" : {
+          "description" : "Table/column pairs that share this semantic meaning. Minimum two entries for the linkage to be meaningful.",
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/ColumnReference"
+          }
+        },
+        "semantic_key" : {
+          "type" : [ "string", "null" ],
+          "description" : "Unique identifier for this cross-table linkage. Used as part of the substitution-dictionary key. Example: \"user_email\"."
+        }
+      },
+      "description" : "Group of columns across tables that must receive the same anonymized value (e.g. users.email and audit_logs.user_email).",
+      "additionalProperties" : false
+    },
+    "SemanticType" : {
+      "type" : "string",
+      "enum" : [ "EMAIL", "FIRST_NAME", "LAST_NAME", "PHONE", "ADDRESS", "IBAN", "IP_ADDRESS", "JSONB" ],
+      "description" : "Semantic type of a column value — drives fake data generation (FAKE) or masking pattern (MASK). JSONB requires a non-empty json_paths list."
+    },
+    "SemanticType-nullable" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/SemanticType"
+      } ]
+    },
+    "Strategy" : {
+      "type" : "string",
+      "enum" : [ "FAKE", "MASK", "HASH", "NULLIFY", "KEEP", "FPE_ID", "FPE_UUID" ],
+      "description" : "Anonymization strategy. FAKE = deterministic fake (requires type). MASK = partial masking. HASH = SHA-256 one-way. NULLIFY = null. KEEP = copy unchanged. FPE_ID = format-preserving for numeric IDs. FPE_UUID = format-preserving for UUIDs."
+    },
+    "Strategy-nullable" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/Strategy"
+      } ]
+    },
+    "TableAnonymizationConfig" : {
+      "type" : "object",
+      "properties" : {
+        "columns" : {
+          "description" : "Ordered list of per-column anonymization rules.",
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/ColumnConfig"
+          }
+        },
+        "table" : {
+          "type" : [ "string", "null" ],
+          "description" : "Unqualified table name."
+        }
+      },
+      "description" : "Anonymization rules for all columns of one table.",
+      "additionalProperties" : false
+    },
+    "TableExtractionConfig" : {
+      "type" : "object",
+      "properties" : {
+        "filter" : {
+          "type" : [ "string", "null" ],
+          "description" : "Optional SQL WHERE clause snippet, without the WHERE keyword. Null or blank = all rows. Security validation: see README § Configuration > extraction."
+        },
+        "table" : {
+          "type" : [ "string", "null" ],
+          "description" : "Unqualified table name (the schema is configured separately via replication.schema in application.yaml)."
+        }
+      },
+      "description" : "One table to extract, with an optional WHERE filter applied during the source read.",
+      "additionalProperties" : false
+    }
+  },
+  "type" : "object",
+  "properties" : {
+    "anonymization" : {
+      "$ref" : "#/$defs/AnonymizationConfig-nullable",
+      "description" : "Anonymization rules applied to extracted rows before they reach the target."
+    },
+    "extraction" : {
+      "$ref" : "#/$defs/ExtractionConfig-nullable",
+      "description" : "Source-side extraction rules: which tables to read and with which filters."
+    }
+  },
+  "additionalProperties" : false
+}

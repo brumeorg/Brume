@@ -1,0 +1,17 @@
+<div class="stat-row" th:fragment="content(statRow)" xmlns:th="http://www.thymeleaf.org">
+    <div class="stat">
+        <div class="num"><span th:text="${statRow.totalPlannedNum}">0</span><span class="small">&nbsp;lignes</span></div>
+        <div class="label">Volume total planifié</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.totalPlannedDelta)}" th:text="${statRow.totalPlannedDelta}">delta</div>
+    </div>
+    <div class="stat">
+        <div class="num" th:classappend="${statRow.piiWarn} ? ' warn' : ''" th:text="${statRow.piiCount}">0</div>
+        <div class="label">PII sans règle</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.piiDelta)}" th:text="${statRow.piiDelta}">delta</div>
+    </div>
+    <div class="stat">
+        <div class="num" th:classappend="${statRow.qidWarn} ? ' warn' : ''" th:text="${statRow.qidCount}">0</div>
+        <div class="label">Quasi-identifiants</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.qidDelta)}" th:text="${statRow.qidDelta}">delta</div>
+    </div>
+</div>

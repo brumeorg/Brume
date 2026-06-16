@@ -1,0 +1,22 @@
+<div class="stat-row" th:fragment="content(statRow)" xmlns:th="http://www.thymeleaf.org">
+    <div class="stat">
+        <div class="num"><span th:text="${statRow.extractedNum}">0</span><span class="small">&nbsp;lignes</span></div>
+        <div class="label">Extraites</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.extractedDelta)}" th:text="${statRow.extractedDelta}">delta</div>
+    </div>
+    <div class="stat">
+        <div class="num"><span th:text="${statRow.insertedNum}">0</span><span class="small">&nbsp;lignes</span></div>
+        <div class="label">Insérées</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.insertedDelta)}" th:text="${statRow.insertedDelta}">delta</div>
+    </div>
+    <div class="stat">
+        <div class="num" th:classappend="${statRow.conflictsWarn} ? ' warn' : ''" th:text="${statRow.conflictsNum}">0</div>
+        <div class="label">Conflits ignorés</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.conflictsDelta)}" th:text="${statRow.conflictsDelta}">delta</div>
+    </div>
+    <div class="stat">
+        <div class="num" th:classappend="${statRow.batchErrorsErr} ? ' err' : ''" th:text="${statRow.batchErrorsNum}">0</div>
+        <div class="label">Lots échoués</div>
+        <div class="delta" th:if="${!#strings.isEmpty(statRow.batchErrorsDelta)}" th:text="${statRow.batchErrorsDelta}">delta</div>
+    </div>
+</div>

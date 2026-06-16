@@ -1,0 +1,19 @@
+# test-config-bad-table.yaml — Integration test fixture for SchemaConfigValidator
+#
+# This config references 'userz' which does not exist in the source schema (the table is
+# 'users'). The schema-aware validator must reject this at boot with a clear error
+# including a Levenshtein-based "did you mean 'users'?" suggestion.
+
+extraction:
+  fk_depth: 3
+  fetch_size: 25
+  batch_size: 100
+  tables:
+    - table: userz   # <-- typo: real table is 'users'
+
+anonymization:
+  tables:
+    - table: userz
+      columns:
+        - name: id
+          strategy: FPE_ID

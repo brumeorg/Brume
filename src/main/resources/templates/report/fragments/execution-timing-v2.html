@@ -1,0 +1,22 @@
+<div class="timing" th:fragment="content(timing)" xmlns:th="http://www.thymeleaf.org">
+    <div class="timing-bar" role="img"
+         th:attr="aria-label=|Extraction ${timing.extraction.pctLabel}, anonymisation ${timing.anonymization.pctLabel}, écriture ${timing.write.pctLabel}|">
+        <span class="b1" th:attr="style=|flex: ${timing.extractionFlex}|"></span>
+        <span class="b2" th:attr="style=|flex: ${timing.anonymizationFlex}|"></span>
+        <span class="b3" th:attr="style=|flex: ${timing.writeFlex}|"></span>
+    </div>
+    <div class="timing-legend">
+        <div class="phase">
+            <div class="head"><span class="sw b1"></span>Extraction</div>
+            <div class="v"><span th:text="${timing.extraction.duration}">87.4 s</span><span class="u">&nbsp;·&nbsp;<span th:text="${timing.extraction.pctLabel}">33.2 %</span></span></div>
+        </div>
+        <div class="phase">
+            <div class="head"><span class="sw b2"></span>Anonymisation</div>
+            <div class="v"><span th:text="${timing.anonymization.duration}">142.8 s</span><span class="u">&nbsp;·&nbsp;<span th:text="${timing.anonymization.pctLabel}">54.2 %</span></span></div>
+        </div>
+        <div class="phase">
+            <div class="head"><span class="sw b3"></span>Écriture</div>
+            <div class="v"><span th:text="${timing.write.duration}">33.2 s</span><span class="u">&nbsp;·&nbsp;<span th:text="${timing.write.pctLabel}">12.6 %</span></span></div>
+        </div>
+    </div>
+</div>

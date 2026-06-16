@@ -1,0 +1,20 @@
+<th:block th:fragment="content(piiWarnings)" xmlns:th="http://www.thymeleaf.org">
+    <div class="pii-details-body">
+        <div class="pii-definition">
+            <strong>Qu'est-ce qu'une PII ?</strong>
+            Les <em>Personally Identifiable Information</em> (PII) désignent toute donnée
+            permettant d'identifier directement ou indirectement une personne physique —
+            nom, prénom, adresse email, numéro de téléphone, adresse postale, adresse IP,
+            IBAN, numéro de sécurité sociale, etc.
+            Ces colonnes correspondent à des patterns PII connus mais ne sont couvertes
+            par aucune règle dans <code>config.yaml</code>.
+        </div>
+        <div class="warn-block pii-warn-row" th:each="warning : ${piiWarnings}">
+            <span>[WARN PII] </span>
+            <span th:text="${warning.qualifiedColumn}">users.email</span>
+            <span> — aucune règle </span>
+            <span class="pii-pattern" th:text="| (pattern : ${warning.matchedPattern})|">(pattern : email)</span>
+        </div>
+    </div>
+</th:block>
+

@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title, cssContent)">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title th:text="${title}">Madar</title>
+<style th:utext="${cssContent}"></style>
+</head>
+<body>
+<th:block th:fragment="documentBody(bodyContent)">
+<div class="container" th:utext="${bodyContent}"></div>
+</th:block>
+</body>
+</html>
+

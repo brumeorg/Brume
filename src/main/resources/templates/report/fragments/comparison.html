@@ -1,0 +1,66 @@
+<section class="tables" th:fragment="section(comparison)" xmlns:th="http://www.thymeleaf.org">
+  <h2>Plan vs Réel</h2>
+  <div class="table-scroll">
+	<table>
+	  <thead><tr>
+		<th>Table</th><th>Planifié</th><th>Réel</th><th>Δ%</th><th>Insérées</th><th>Conflits</th><th></th>
+	  </tr></thead>
+		<tbody>
+		<tr th:classappend="${row.altRow} ? 'alt-row' : ''" th:each="row : ${comparison.rows}">
+			<td class="cell-name" th:text="${row.table}">orders</td>
+			<td class="cell-num" th:text="${row.planned}">0</td>
+			<td class="cell-num" th:text="${row.actual}">0</td>
+			<td class="cell-num" th:style="|background:${row.deltaBackground};font-weight:600|"
+			    th:text="${row.deltaFormatted}">0%
+			</td>
+			<td class="cell-num" th:text="${row.inserted}">0</td>
+			<td class="cell-num" th:classappend="${row.conflictWarn} ? ' cell-warn' : ''" th:text="${row.conflicts}">0
+			</td>
+			<td class="cell-num" th:style="|color:${row.statusColor};font-weight:700|" th:text="${row.statusSymbol}">✓
+			</td>
+		</tr>
+		</tbody>
+		<tfoot>
+		<tr class="total-row">
+			<td><strong>TOTAL</strong></td>
+			<td class="cell-num"><strong th:text="${comparison.total.planned}">0</strong></td>
+			<td class="cell-num"><strong th:text="${comparison.total.actual}">0</strong></td>
+			<td class="cell-num" th:style="|background:${comparison.total.deltaBackground};font-weight:700|"
+			    th:text="${comparison.total.deltaFormatted}">0%
+			</td>
+			<td class="cell-num"><strong th:text="${comparison.total.inserted}">0</strong></td>
+			<td class="cell-num" th:classappend="${comparison.total.conflictWarn} ? ' cell-warn' : ''"><strong
+					th:text="${comparison.total.conflicts}">0</strong></td>
+			<td></td>
+		</tr>
+		</tfoot>
+	</table>
+  </div>
+	<details class="pii-accordion" th:if="${comparison.hasPiiWarnings}">
+		<summary class="details-summary pii-summary"
+		         th:text="|⚠ ${comparison.piiWarningCount} colonne(s) potentiellement sensible(s) sans règle d'anonymisation|">
+			⚠ 0 colonne(s) potentiellement sensible(s) sans règle d'anonymisation
+		</summary>
+		<th:block th:replace="~{report/fragments/pii-warnings :: content(${comparison.piiWarnings})}"></th:block>
+	</details>
+	<div style="margin-top:16px" th:if="${comparison.hasInsights}">
+		<h3 class="insights-title">Observations</h3>
+		<th:block th:each="group : ${comparison.insightGroups}">
+			<details class="insight-accordion" th:attr="open=${group.open} ? 'open' : null">
+				<summary class="details-summary insight-summary">
+					<span th:text="${group.displayLabel}">🌐 Global</span>
+					<span class="col-count" th:text="${group.countLabel}">(0 observation)</span>
+					<span class="insight-warn-badge" th:if="${group.hasWarnBadge}"
+					      th:text="${group.warnBadgeLabel}">0 ⚠</span>
+				</summary>
+				<div class="insight-list">
+					<div class="insight-row" th:classappend="' ' + ${item.cssClass}" th:each="item : ${group.items}">
+						<span th:text="${item.icon}">✓</span>
+						<span th:text="${item.message}">Observation</span>
+					</div>
+				</div>
+			</details>
+		</th:block>
+	</div>
+</section>
+

@@ -1,0 +1,42 @@
+<div class="strat-grid" th:fragment="content(strategyCards, dictV2, hasDictV2)" xmlns:th="http://www.thymeleaf.org">
+    <div class="strategies">
+        <div class="strat" th:each="card : ${strategyCards}">
+            <div>
+                <div class="name" th:text="${card.name}">HASH</div>
+                <div class="desc" th:text="${card.description}">Description de la stratégie.</div>
+            </div>
+            <div class="count"><span th:text="${card.count}">0</span><span class="u">&nbsp;cols</span></div>
+        </div>
+    </div>
+
+    <aside class="dict" th:if="${hasDictV2}" aria-label="Substitution dictionary usage">
+        <div class="head">
+            <h3>Dictionnaire de substitution</h3>
+            <span class="locale">cf. config locale Faker</span>
+        </div>
+        <div class="big"><span th:text="${dictV2.usagePercent}">0</span>%<span class="frac">&nbsp;utilisé</span></div>
+        <div class="meter" aria-hidden="true">
+            <i th:attr="style=|width: ${dictV2.usagePercent}%|"></i>
+        </div>
+        <div class="scale"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+
+        <dl>
+            <dt>Entrées allouées</dt><dd th:text="${dictV2.entries}">0</dd>
+            <dt>Limite</dt><dd th:text="${dictV2.limit}">0</dd>
+            <dt>Marge restante</dt><dd th:text="${dictV2.headroom}">0</dd>
+        </dl>
+
+        <div class="top" th:if="${not #lists.isEmpty(dictV2.topContributors)}">
+            <div class="head"><span>Top contributeurs</span><span>entrées</span></div>
+            <th:block th:each="c : ${dictV2.topContributors}">
+                <div class="k" th:text="${c.semanticKey}">table.column</div>
+                <div class="v" th:text="${c.entries}">0</div>
+            </th:block>
+        </div>
+
+        <div class="hint" th:if="${dictV2.aboveThreshold}">
+            <b>Au-dessus du seuil de 75 %.</b> Considérer une augmentation de
+            <code>dict.size</code> avant la prochaine run si la base est en croissance.
+        </div>
+    </aside>
+</div>

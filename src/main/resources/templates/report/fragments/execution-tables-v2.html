@@ -1,0 +1,45 @@
+<table class="gridtable" th:fragment="content(tableRows, tableTotals)"
+       aria-label="Résultats par table" xmlns:th="http://www.thymeleaf.org">
+    <thead>
+    <tr>
+        <th class="l">Table</th>
+        <th class="l">Statut</th>
+        <th>Extraites</th>
+        <th>FK parents</th>
+        <th>Insérées</th>
+        <th>Conflits</th>
+        <th>Lots échoués</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="row : ${tableRows}"
+        th:with="rowClass=${row.errorWarn} ? 'err' : (${row.conflictWarn} ? 'warn' : 'ok')"
+        th:classappend="${rowClass}">
+        <td class="l tname">
+            <span th:text="${row.table}">public.users</span>
+            <span class="pill fk" th:if="${row.hasFkBadge}">FK</span>
+        </td>
+        <td class="l">
+            <span class="pill"
+                  th:classappend="${row.errorWarn} ? ' err' : (${row.conflictWarn} ? ' warn' : ' ok')"
+                  th:text="${row.errorWarn} ? 'Échec' : (${row.conflictWarn} ? 'Conflit' : 'OK')">OK</span>
+        </td>
+        <td th:text="${row.extracted}">0</td>
+        <td th:classappend="${!row.hasFkBadge} ? ' zero' : ''" th:text="${row.fkParents}">0</td>
+        <td th:text="${row.inserted}">0</td>
+        <td th:classappend="${!row.conflictWarn} ? ' zero' : ''" th:text="${row.conflicts}">0</td>
+        <td th:classappend="${!row.errorWarn} ? ' zero' : ''" th:text="${row.batchErrors}">0</td>
+    </tr>
+    </tbody>
+    <tfoot>
+    <tr>
+        <td class="l label">Totals</td>
+        <td class="l"></td>
+        <td th:text="${tableTotals.extracted}">0</td>
+        <td th:text="${tableTotals.fkParents}">0</td>
+        <td th:text="${tableTotals.inserted}">0</td>
+        <td th:text="${tableTotals.conflicts}">0</td>
+        <td th:classappend="${tableTotals.errorWarn} ? ' err-num' : ''" th:text="${tableTotals.batchErrors}">0</td>
+    </tr>
+    </tfoot>
+</table>

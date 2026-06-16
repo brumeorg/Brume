@@ -1,0 +1,78 @@
+# test-config-linked-columns.yaml — fixture for LinkedColumnsConsistencyIT (#6e C1)
+#
+# Exercises the `linked_columns` semantic-key contract on the test_brume schema:
+# `users.email` and `audit_logs.user_email` share semantic key `user_email`, so the
+# same source value (e.g. 'alice.martin@example.com') must produce the same FAKE EMAIL
+# wherever it appears, across both tables.
+#
+# Source dataset (cf. scripts/02_data.sql):
+#   - 5 users (alice / bob / claire / david / emma)
+#   - 5 audit_logs (301=alice, 302=bob, 303=claire, 304=alice again, 305=unknown@external.com)
+#   - Distinct emails in users.email      = 5
+#   - Distinct emails in audit_logs.email = 4 (alice/bob/claire/unknown)
+#   - Intersection (emails in both)        = 3 (alice/bob/claire)
+#   - Union                                = 6
+#
+# Cardinalities must be preserved in target if linked_columns works. If the
+# guarantee breaks (each column anonymized in isolation), the union jumps to 9.
+
+extraction:
+  fk_depth: 3
+  fetch_size: 25
+  batch_size: 100
+  tables:
+    - table: users
+      filter:
+    - table: audit_logs
+      filter:
+
+anonymization:
+  linked_columns:
+    - semantic_key: user_email
+      columns:
+        - table: users
+          column: email
+        - table: audit_logs
+          column: user_email
+
+  tables:
+    - table: users
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+        - name: phone
+          strategy: MASK
+          type: PHONE
+        - name: iban
+          strategy: NULLIFY
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+        - name: address_json
+          strategy: NULLIFY
+        - name: manager_id
+          strategy: NULLIFY
+
+    - table: audit_logs
+      columns:
+        - name: id
+          strategy: FPE_ID
+        - name: user_email
+          strategy: FAKE
+          type: EMAIL
+        - name: action
+          strategy: KEEP
+        - name: ip_address
+          strategy: MASK
+          type: IP_ADDRESS
+        - name: payload
+          strategy: NULLIFY

@@ -1,0 +1,19 @@
+<header class="mast" th:fragment="content(masthead)" xmlns:th="http://www.thymeleaf.org">
+    <div>
+        <div class="wordmark">Madar<span class="dot"></span><span class="em" th:text="${masthead.reportTitle}">Rapport d'exécution</span>
+            <span class="pill" th:if="${masthead.hasCommand}"
+                  th:classappend="${masthead.commandPillClass}"
+                  th:text="${masthead.commandLabel}">execute</span>
+        </div>
+        <div class="sub">
+            <span th:text="${masthead.sourceSchema}">production_clone</span>
+            &nbsp;&nbsp;→&nbsp;&nbsp;
+            <span th:text="${masthead.targetSchema}">staging_anonymized</span>
+            &nbsp;&nbsp;·&nbsp;&nbsp;config&nbsp;<span th:text="${masthead.configPath}">eu-pii.yaml</span>
+        </div>
+    </div>
+    <div class="stamp">
+        généré&nbsp;<b th:text="${masthead.generatedAt}">2026-05-13 14:36:41 UTC</b><br>
+        madar&nbsp;<b th:text="${masthead.brumeVersion}">v0.14.2</b>
+    </div>
+</header>
