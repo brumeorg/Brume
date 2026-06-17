@@ -2,119 +2,120 @@
   <img src="assets/logo.png" alt="Brume" width="200"/>
 </p>
 
-**Brume** est un outil de **pseudonymisation de bases de données PostgreSQL** conforme au RGPD. Il copie un sous-ensemble ciblé d'une base source vers une base cible ou vers un fichier.sql en transformant les données personnelles à la volée, tout en préservant l'intégrité référentielle (clés étrangères).
+**Brume** is a **PostgreSQL database pseudonymization tool** compliant with the GDPR. It copies a targeted subset of a source database to a target database or a .sql file while transforming personal data on the fly, all while preserving referential integrity (foreign keys).
 
-> **Contexte réglementaire** — Le RGPD (Règlement (UE) 2016/679) encourage explicitement la pseudonymisation comme mesure technique de réduction du risque (Art. 25, Art. 89). L'Article 4.5 définit la pseudonymisation comme le traitement de données personnelles de façon à ce qu'elles ne puissent plus être attribuées à une personne précise sans recours à des informations supplémentaires conservées séparément. Brume implémente cette définition : le `hmac-secret` et la `fpe-key` constituent ces « informations supplémentaires ».
+> **Regulatory context** — The GDPR (Regulation (EU) 2016/679) explicitly encourages pseudonymization as a technical measure for risk reduction (Art. 25, Art. 89). Article 4.5 defines pseudonymization as the processing of personal data in such a way that it can no longer be attributed to a specific person without the use of additional information kept separately. Brume implements this definition: the `hmac-secret` and the `fpe-key` constitute this "additional information".
 
-> ⚠️ **Position juridique** — Brume produit une **pseudonymisation au sens de l'Art. 4.5**, **pas une anonymisation** au sens du considérant 26. Le dataset cible reste **donnée personnelle** au sens RGPD. Consulter votre DPO avant tout traitement en production.
-
----
-
-## Fonctionnalités clés
-
-- **Pseudonymisation forte déterministe** — même entrée + même secret → même sortie. Deux runs produisent des résultats identiques, garantissant la cohérence des environnements de test.
-- **Préservation des clés étrangères** — les IDs sont chiffrés de manière cohérente (`FPE_ID`, `FPE_UUID`) : les contraintes FK restent valides sur la base cible, sans avoir à désactiver les vérifications d'intégrité.
-- **Remontée automatique des parents et enfants FK** — si vous extrayez `orders`, Brume remonte automatiquement les `users` référencés, jusqu'à `fk_depth` niveaux.
-- **Configuration déclarative** — un fichier `brume.yml` définit par table et par colonne la stratégie à appliquer (`FAKE`, `HASH`, `MASK`, `NULLIFY`, `FPE_ID`, `FPE_UUID`, `KEEP`).
-- **Cohérence cross-tables** — `linked_columns` garantit que la même valeur réelle produit la même valeur fictive dans plusieurs tables sans lien FK entre elles.
-- **Colonnes JSONB** — les chemins `$.field.subfield` sont pseudonymisés individuellement.
-- **Audit k-anonymity** — sous-commande `brume audit --anonymity` pour mesurer le risque résiduel de ré-identification et produire un rapport DPO.
-- **PostgreSQL 14–18** supporté (source et cible).
+> ⚠️ **Legal position** — Brume produces a **pseudonymization within the meaning of Art. 4.5**, **not anonymization** within the meaning of recital 26. The target dataset remains **personal data** under the GDPR. Consult your DPO before any production processing.
 
 ---
 
-## Prérequis
+## Key features
 
-- **PostgreSQL 14, 15, 16, 17 ou 18** sur la base source et la base cible
-- ⚠️ **Sécurité** de préférence utiliser un compte en lecture seule.
+- **Strong deterministic pseudonymization** — same input + same secret → same output. Two runs produce identical results, ensuring consistency across test environments.
+- **Foreign key preservation** — IDs are encrypted consistently (`FPE_ID`, `FPE_UUID`): FK constraints remain valid on the target database, without having to disable integrity checks.
+- **Automatic FK parent and child traversal** — if you extract `orders`, Brume automatically traverses the referenced `users`, up to `fk_depth` levels.
+- **Declarative configuration** — a `brume.yml` file defines, per table and per column, the strategy to apply (`FAKE`, `HASH`, `MASK`, `NULLIFY`, `FPE_ID`, `FPE_UUID`, `KEEP`).
+- **Cross-table consistency** — `linked_columns` guarantees that the same real value produces the same fake value across multiple tables without an FK link between them.
+- **JSONB columns** — `$.field.subfield` paths are pseudonymized individually.
+- **k-anonymity audit** — `brume audit --anonymity` subcommand to measure residual re-identification risk and produce a DPO report.
+- **PostgreSQL 14–18** supported (source and target).
 
 ---
 
-## Installation sur Debian/Ubuntu
+## Prerequisites
+
+- **PostgreSQL 14, 15, 16, 17 or 18** on the source database and the target database
+- ⚠️ **Security**: preferably use a read-only account.
+
+---
+
+## Installation on Debian/Ubuntu
 
 
 ```bash
-# 1. Configurer le repo (une seule fois)
+# 1. Configure the repo (one time only)
 curl -1sLf 'https://dl.cloudsmith.io/public/brume/brume/setup.deb.sh' | sudo -E bash
 
-# 2. Installer
+# 2. Install
 sudo apt-get install brume
 
-# Mises à jour ensuite
+# Updates afterwards
 sudo apt-get update && sudo apt-get upgrade brume
 
-# 3. Configurer Brume (selon votre schéma)
+# 3. Configure Brume (according to your schema)
 cp brume.example.yml brume.yml
 ```
 
-## Installation sur MacOS
+## Installation on MacOS
 
 
 ```bash
-# 1. Configurer le repo (une seule fois)
-brew tap brumecorp/brume
+# 1. Configure the repo (one time only)
+brew tap brumeorg/brume
+brew trust --formula brumeorg/brume/brume
 
-# 2. Installer
+# 2. Install
 brew install brume
 
-# Mises à jour ensuite
+# Updates afterwards
 brew upgrade brume
 
-# 3. Configurer Brume (selon votre schéma)
+# 3. Configure Brume (according to your schema)
 cp brume.example.yml brume.yml
 ```
 
-## Installation sur Fedora/CentOS
+## Installation on Fedora/CentOS
 
 
 ```bash
-# 1. Configurer le repo (une seule fois)
+# 1. Configure the repo (one time only)
 curl -1sLf 'https://dl.cloudsmith.io/public/brume/brume/setup.rpm.sh' | sudo -E bash
 
-# 2. Installer
+# 2. Install
 sudo dnf install brume
 
-# 3. Configurer Brume (selon votre schéma)
+# 3. Configure Brume (according to your schema)
 cp brume.example.yml brume.yml
 ```
 
 ---
 
-## Stratégies de pseudonymisation
+## Pseudonymization strategies
 
-| Stratégie | Description |
+| Strategy | Description |
 |---|---|
-| `FAKE` | Valeur fictive réaliste et déterministe (Datafaker, HMAC-seeded). Requiert `type`. |
-| `FPE_ID` | Chiffrement préservant le format (FF1/FPE). Integer in → integer out. Idéal pour les PKs/FKs numériques. |
-| `FPE_UUID` | Pseudonymisation déterministe UUID→UUID. Idéal pour les PKs/FKs UUID. |
-| `MASK` | Masquage partiel selon le type : conserve le préfixe, remplace le reste par `*`. |
-| `HASH` | HMAC one-way (non réversible). 64 chars avec HmacSHA256. |
-| `NULLIFY` | Remplace par `NULL`. La colonne doit être nullable. |
-| `KEEP` | Copie sans modification (comportement par défaut pour les colonnes non déclarées). |
+| `FAKE` | Realistic and deterministic fake value (Datafaker, HMAC-seeded). Requires `type`. |
+| `FPE_ID` | Format-preserving encryption (FF1/FPE). Integer in → integer out. Ideal for numeric PKs/FKs. |
+| `FPE_UUID` | Deterministic UUID→UUID pseudonymization. Ideal for UUID PKs/FKs. |
+| `MASK` | Partial masking depending on the type: keeps the prefix, replaces the rest with `*`. |
+| `HASH` | One-way HMAC (non-reversible). 64 chars with HmacSHA256. |
+| `NULLIFY` | Replaces with `NULL`. The column must be nullable. |
+| `KEEP` | Copy without modification (default behavior for undeclared columns). |
 
-Types sémantiques disponibles pour `FAKE` et `MASK` : `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `PHONE`, `IBAN`, `ADDRESS`, `IP_ADDRESS`, `JSONB`.
+Semantic types available for `FAKE` and `MASK`: `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `PHONE`, `IBAN`, `ADDRESS`, `IP_ADDRESS`, `JSONB`.
 
 ---
 
 ## Configuration
 
-### `.env` — connexions et secrets
+### `.env` — connections and secrets
 
 ```bash
 cp .env.example .env
 
-#Puis éditer le .env comme dans l'exemple
-BRUME_HMAC_SECRET=mon-secret
-BRUME_FPE_KEY=ma-cle-fpe-16ch
+# Then edit the .env as in the example
+BRUME_HMAC_SECRET=my-secret
+BRUME_FPE_KEY=my-fpe-key-16ch
 REPLICATION_SOURCE_PASSWORD=postgres
 ...
 ```
 
-### `brume.yml` — règles de pseudonymisation
+### `brume.yml` — pseudonymization rules
 
 ```yaml
 extraction:
-  fk_depth: 3          # Niveaux de profondeur FK automatique
+  fk_depth: 3          # Automatic FK depth levels
   tables:
     - table: orders
       filter: "created_at >= '2025-01-01'"
@@ -127,13 +128,13 @@ anonymization:
         - table: users
           column: email
         - table: audit_logs
-          column: user_email   # Même vraie valeur → même fausse valeur
+          column: user_email   # Same real value → same fake value
 
   tables:
     - table: users
       columns:
         - name: id
-          strategy: FPE_ID    # Propagé automatiquement aux FKs orders.user_id
+          strategy: FPE_ID    # Automatically propagated to FKs orders.user_id
         - name: email
           strategy: FAKE
           type: EMAIL
@@ -146,57 +147,57 @@ anonymization:
 
 ### Strategy
 
-La `strategy` définit **comment une valeur réelle est transformée** avant d'être écrite sur la base cible. Elle se déclare au niveau de chaque colonne dans `brume.yml`.
+The `strategy` defines **how a real value is transformed** before being written to the target database. It is declared at the column level in `brume.yml`.
 
-| Valeur | Description |
+| Value | Description |
 |---|---|
-| `FAKE` | Remplace par une valeur fictive réaliste et déterministe générée via Datafaker, seedée par HMAC. Requiert un `type`. |
-| `MASK` | Masquage partiel qui préserve la structure du champ (ex : conserve les 3 premiers chiffres d'un numéro de téléphone). Requiert un `type`. |
-| `HASH` | HMAC one-way SHA-256 keyé avec le secret. Non réversible. Déterministe : une même valeur source produit toujours le même hash — les jointures restent valides. |
-| `NULLIFY` | Force `NULL`. La colonne doit être nullable. Réduit la surface PII à zéro. |
-| `KEEP` | Copie la valeur sans modification. À utiliser pour les colonnes non sensibles ou déjà anonymisées. Comportement par défaut pour les colonnes non déclarées. |
-| `FPE_ID` | Chiffrement préservant le format (FF1/BouncyCastle) pour les identifiants numériques. Entier en entrée → entier de même longueur en sortie. Idéal pour les PKs/FKs numériques — propagé automatiquement aux colonnes FK pointant vers cette PK. |
-| `FPE_UUID` | Pseudonymisation UUID→UUID via HMAC-SHA256. Préserve le format `8-4-4-4-12` et l'unicité. Propagé automatiquement aux FK UUID. |
+| `FAKE` | Replaces with a realistic and deterministic fake value generated via Datafaker, seeded by HMAC. Requires a `type`. |
+| `MASK` | Partial masking that preserves the structure of the field (e.g. keeps the first 3 digits of a phone number). Requires a `type`. |
+| `HASH` | One-way HMAC SHA-256 keyed with the secret. Non-reversible. Deterministic: the same source value always produces the same hash — joins remain valid. |
+| `NULLIFY` | Forces `NULL`. The column must be nullable. Reduces the PII surface to zero. |
+| `KEEP` | Copies the value without modification. To be used for non-sensitive or already-anonymized columns. Default behavior for undeclared columns. |
+| `FPE_ID` | Format-preserving encryption (FF1/BouncyCastle) for numeric identifiers. Integer input → integer output of the same length. Ideal for numeric PKs/FKs — automatically propagated to FK columns pointing to this PK. |
+| `FPE_UUID` | UUID→UUID pseudonymization via HMAC-SHA256. Preserves the `8-4-4-4-12` format and uniqueness. Automatically propagated to UUID FKs. |
 
 ### Type
 
-Le `type` précise la **sémantique du champ** pour les stratégies `FAKE` et `MASK`, afin que Brume génère des données fictives contextuellement cohérentes.
+The `type` specifies the **semantics of the field** for the `FAKE` and `MASK` strategies, so that Brume generates contextually coherent fake data.
 
-| Valeur | Description |
+| Value | Description |
 |---|---|
-| `EMAIL` | Adresse email — ex : `alice@example.com` |
-| `FIRST_NAME` | Prénom — ex : `Alice` |
-| `LAST_NAME` | Nom de famille — ex : `Dupont` |
-| `PHONE` | Numéro de téléphone — ex : `+33 6 12 34 56 78` |
-| `ADDRESS` | Adresse postale — ex : `12 rue de la Paix, Paris` |
-| `IBAN` | Numéro de compte bancaire IBAN — ex : `FR76 3000 6000 0112 3456 7890 189` |
-| `IP_ADDRESS` | Adresse IPv4 — ex : `192.168.1.42` |
-| `JSONB` | Colonne JSON : délègue à `JsonPathProcessor` pour anonymiser les champs imbriqués individuellement via `json_paths`. |
+| `EMAIL` | Email address — e.g. `alice@example.com` |
+| `FIRST_NAME` | First name — e.g. `Alice` |
+| `LAST_NAME` | Last name — e.g. `Dupont` |
+| `PHONE` | Phone number — e.g. `+33 6 12 34 56 78` |
+| `ADDRESS` | Postal address — e.g. `12 rue de la Paix, Paris` |
+| `IBAN` | IBAN bank account number — e.g. `FR76 3000 6000 0112 3456 7890 189` |
+| `IP_ADDRESS` | IPv4 address — e.g. `192.168.1.42` |
+| `JSONB` | JSON column: delegates to `JsonPathProcessor` to anonymize nested fields individually via `json_paths`. |
 
 ---
 
 ## CLI
 
 ```bash
-brume plan        # Estime les volumes et détecte les colonnes PII non couvertes (read-only)
-brume execute     # Exécute la pseudonymisation complète
-brume dry-run     # Exécute sans écrire (NullSink — pour valider la config)
+brume plan        # Estimates volumes and detects uncovered PII columns (read-only)
+brume execute     # Runs the full pseudonymization
+brume dry-run     # Runs without writing (NullSink — for validating the config)
 brume --help
 ```
 
-Flags disponibles sur toutes les sous-commandes :
+Flags available on all subcommands:
 
-| Flag | Effet |
+| Flag | Effect |
 |---|---|
-| `-v` / `--verbose` | Logs DEBUG |
-| `-q` / `--quiet` | Logs ERROR uniquement (rapport final toujours visible) |
-| `--json` | Sortie machine-readable sur stdout, logs JSON sur stderr |
+| `-v` / `--verbose` | DEBUG logs |
+| `-q` / `--quiet` | ERROR logs only (final report always visible) |
+| `--json` | Machine-readable output on stdout, JSON logs on stderr |
 
 ---
 
-## Audit k-anonymity
+## k-anonymity audit
 
-Brume mesure le risque résiduel de ré-identification via la k-anonymity (Sweeney 2002) :
+Brume measures the residual re-identification risk via k-anonymity (Sweeney 2002):
 
 ```bash
 brume audit --anonymity \
@@ -204,21 +205,21 @@ brume audit --anonymity \
   --report-format markdown
 ```
 
-Le rapport liste les **classes singletons** (lignes uniques = ré-identifiables) et émet des recommandations actionnables. Conçu pour être remis au DPO.
+The report lists the **singleton classes** (unique rows = re-identifiable) and emits actionable recommendations. Designed to be handed to the DPO.
 
-**Limites V1 :** seule la k-anonymity est mesurée (pas la l-diversity ni la t-closeness) ; audit intra-table uniquement.
-
----
-
-## Bonnes pratiques RGPD
-
-- **Ne pas qualifier le dataset cible de « données anonymes »** — il reste donnée personnelle au sens RGPD.
-- **Protéger `hmac-secret` et `fpe-key`** au même niveau que les données source. Leur fuite invalide la pseudonymisation.
-- **Limiter les destinataires** du dataset pseudonymisé au strict nécessaire (tests, qualification, démo).
-- **Consulter votre DPO** avant tout traitement en production ; le rapport `brume audit --anonymity` est un outil d'aide à la décision, pas une certification.
+**V1 limitations:** only k-anonymity is measured (not l-diversity or t-closeness); intra-table audit only.
 
 ---
 
-## Licence
+## GDPR best practices
 
-Voir [LICENSE](LICENSE).
+- **Do not refer to the target dataset as "anonymous data"** — it remains personal data under the GDPR.
+- **Protect `hmac-secret` and `fpe-key`** at the same level as the source data. Their leak invalidates the pseudonymization.
+- **Limit the recipients** of the pseudonymized dataset to the strict minimum (tests, QA, demo).
+- **Consult your DPO** before any production processing; the `brume audit --anonymity` report is a decision-support tool, not a certification.
+
+---
+
+## License
+
+See [LICENSE](LICENSE).
