@@ -90,7 +90,7 @@ public class ExtractionEngine {
             List<ExtractedRow> rows = cursorReader.read(schemaName, tableName, filter);
 
             TableMetadata meta = schema.get(tableName);
-            String pkColumn = (meta != null) ? meta.primaryKeyColumn() : null;
+            String pkColumn = (meta != null) ? meta.singlePrimaryKeyColumn() : null;
             if (pkColumn != null) {
                 rows.forEach(row -> result.addWithPk(row, pkColumn));
             } else {

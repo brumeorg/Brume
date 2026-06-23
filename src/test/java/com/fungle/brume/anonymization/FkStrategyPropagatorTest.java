@@ -65,6 +65,35 @@ class FkStrategyPropagatorTest {
     }
 
     @Test
+    @DisplayName("propagates per-position across a composite FK — each column inherits its own PK strategy (#81b Q4)")
+    void propagatesAcrossCompositeForeignKey() {
+        AnonymizerConfig config = configWith(
+                tableRules("accounts",
+                        col("tenant_id", Strategy.FPE_ID),
+                        col("account_id", Strategy.HASH))
+        );
+        ForeignKey compositeFk = new ForeignKey("memberships",
+                List.of("tenant_id", "account_id"), "accounts", List.of("tenant_id", "account_id"));
+        DatabaseSchema schema = schema(
+                new TableMetadata("accounts",
+                        List.of(new ColumnMetadata("tenant_id", "integer", false),
+                                new ColumnMetadata("account_id", "integer", false)),
+                        List.of(),
+                        List.of("tenant_id", "account_id")),
+                new TableMetadata("memberships",
+                        List.of(new ColumnMetadata("id", "bigint", false)),
+                        List.of(compositeFk),
+                        List.of("id"))
+        );
+
+        AnonymizerConfig enriched = propagator.propagate(config, schema);
+
+        // Each FK column inherits the strategy of its positionally-aligned PK column independently.
+        assertThat(findRule(enriched, "memberships", "tenant_id").strategy()).isEqualTo(Strategy.FPE_ID);
+        assertThat(findRule(enriched, "memberships", "account_id").strategy()).isEqualTo(Strategy.HASH);
+    }
+
+    @Test
     @DisplayName("propagates HASH and FPE_UUID alongside FPE_ID")
     void propagatesAllDeterministicStrategies() {
         AnonymizerConfig config = configWith(
@@ -316,6 +345,110 @@ class FkStrategyPropagatorTest {
         // The user-declared NULLIFY rule must be preserved verbatim.
         ColumnConfig managerRule = findRule(propagator.propagate(config, schema), "users", "manager_id");
         assertThat(managerRule.strategy()).isEqualTo(Strategy.NULLIFY);
+    }
+
+    // -------------------------------------------------------------------------
+    // Equivalence-class propagation (#70b / ADR-0044) — supersedes ADR-0023's unidirectional
+    // PK → FK semantics. Declaring on any column of a class propagates to the rest.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("propagates FK → PK: declaring the strategy on a child FK fills in the parent PK (the founder's main_courante_utilisateur case)")
+    void propagatesUpFromFkToReferencedPk() {
+        // Composite-junction shape: main_courante_utilisateur has a composite PK whose two
+        // components are themselves FKs to main_courante.id and utilisateur.id. Declaring
+        // the strategy on one FK column should propagate to the upstream PK without the
+        // user having to add the parent table to the config.
+        AnonymizerConfig config = configWith(
+                tableRules("main_courante_utilisateur",
+                        col("id_main_courante", Strategy.FPE_ID))
+        );
+        DatabaseSchema schema = schema(
+                table("main_courante", "id"),
+                tableWithFk("main_courante_utilisateur", "id",
+                        fk("main_courante_utilisateur", "id_main_courante",
+                                "main_courante", "id"))
+        );
+
+        AnonymizerConfig enriched = propagator.propagate(config, schema);
+
+        ColumnConfig parent = findRule(enriched, "main_courante", "id");
+        assertThat(parent).as("upstream PK must inherit the class strategy").isNotNull();
+        assertThat(parent.strategy()).isEqualTo(Strategy.FPE_ID);
+    }
+
+    @Test
+    @DisplayName("propagates to siblings: declaring on one FK fills in the PK and any other FK sharing it")
+    void propagatesAcrossSiblingsOfTheClass() {
+        // Class = {users.id, orders.user_id, audit_logs.user_id}.
+        // User declares the strategy on the audit_logs side only — both other columns
+        // should be enriched.
+        AnonymizerConfig config = configWith(
+                tableRules("audit_logs", col("user_id", Strategy.FPE_ID))
+        );
+        DatabaseSchema schema = schema(
+                table("users", "id"),
+                tableWithFk("orders", "id", fk("orders", "user_id", "users", "id")),
+                tableWithFk("audit_logs", "id",
+                        fk("audit_logs", "user_id", "users", "id"))
+        );
+
+        AnonymizerConfig enriched = propagator.propagate(config, schema);
+
+        assertThat(findRule(enriched, "users", "id").strategy()).isEqualTo(Strategy.FPE_ID);
+        assertThat(findRule(enriched, "orders", "user_id").strategy()).isEqualTo(Strategy.FPE_ID);
+    }
+
+    @Test
+    @DisplayName("rejects a class with two diverging non-NULLIFY strategies declared explicitly (Q2 fail-fast)")
+    void rejectsConflictingClassDeclarations() {
+        // users.id = FPE_ID and orders.user_id = HASH are in the same class — they cannot
+        // both hold true. Brume must refuse rather than silently picking one.
+        AnonymizerConfig config = configWith(
+                tableRules("users", col("id", Strategy.FPE_ID)),
+                tableRules("orders", col("user_id", Strategy.HASH))
+        );
+        DatabaseSchema schema = schema(
+                table("users", "id"),
+                tableWithFk("orders", "id", fk("orders", "user_id", "users", "id"))
+        );
+
+        assertThatThrownBy(() -> propagator.propagate(config, schema))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("conflicting strategies")
+                .hasMessageContaining("users.id=FPE_ID")
+                .hasMessageContaining("orders.user_id=HASH");
+    }
+
+    @Test
+    @DisplayName("composite junction: each PK component is its own class — declaring on each FK propagates to its own parent PK independently")
+    void compositeJunctionPropagatesPerPosition() {
+        // main_courante_utilisateur PK = (id_main_courante, id_utilisateur), both FK to
+        // their respective parents. Declaring on both should propagate to both parents
+        // (two separate equivalence classes, position-wise per #81b).
+        AnonymizerConfig config = configWith(
+                tableRules("main_courante_utilisateur",
+                        col("id_main_courante", Strategy.FPE_ID),
+                        col("id_utilisateur", Strategy.HASH))
+        );
+        DatabaseSchema schema = schema(
+                table("main_courante", "id"),
+                table("utilisateur", "id"),
+                tableWithFk("main_courante_utilisateur", "id_main_courante",
+                        fk("main_courante_utilisateur", "id_main_courante",
+                                "main_courante", "id"),
+                        fk("main_courante_utilisateur", "id_utilisateur",
+                                "utilisateur", "id"))
+        );
+
+        AnonymizerConfig enriched = propagator.propagate(config, schema);
+
+        assertThat(findRule(enriched, "main_courante", "id").strategy())
+                .as("FPE_ID propagates to main_courante.id via the id_main_courante class")
+                .isEqualTo(Strategy.FPE_ID);
+        assertThat(findRule(enriched, "utilisateur", "id").strategy())
+                .as("HASH propagates to utilisateur.id via the id_utilisateur class (independent class)")
+                .isEqualTo(Strategy.HASH);
     }
 
     // -------------------------------------------------------------------------

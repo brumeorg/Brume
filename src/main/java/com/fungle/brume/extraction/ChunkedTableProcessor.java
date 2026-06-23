@@ -285,9 +285,13 @@ public class ChunkedTableProcessor {
                 for (ForeignKey fk : inverseIndex.getOrDefault(parentTable, List.of())) {
                     String childTable = fk.fromTable();
                     if (seedPks.containsKey(childTable)) continue; // already a configured seed
+                    // #25/A19 — a table completed in a previous run must not be re-fetched as an
+                    // FK child either (mirrors the parent-row skip in processTable); otherwise a
+                    // --resume re-writes the rows of an already-completed configured table.
+                    if (checkpointService.shouldSkip(childTable)) continue;
 
                     TableMetadata childMeta = schema.get(childTable);
-                    String childPkCol = childMeta != null ? childMeta.primaryKeyColumn() : null;
+                    String childPkCol = childMeta != null ? childMeta.singlePrimaryKeyColumn() : null;
 
                     List<ExtractedRow> sourceBuffer = new ArrayList<>(chunkSize);
                     List<ExtractedRow> anonBuffer = new ArrayList<>(chunkSize);
@@ -437,7 +441,7 @@ public class ChunkedTableProcessor {
      */
     private static String pkColumnFor(String table, DatabaseSchema schema) {
         TableMetadata meta = schema.get(table);
-        return meta == null ? null : meta.primaryKeyColumn();
+        return meta == null ? null : meta.singlePrimaryKeyColumn();
     }
 
     /**
@@ -507,15 +511,30 @@ public class ChunkedTableProcessor {
     }
 
     /**
-     * Returns the row's primary key value, or {@code null} when the table has no
-     * single-column PK or the PK value is itself {@code null} (skip dedup).
+     * Returns the dedup key for a row's primary key, or {@code null} when the table has no PK
+     * or any PK value is itself {@code null} (skip dedup). For a single-column PK the key is
+     * the bare scalar (unchanged behavior); for a composite PK it is the ordered value tuple
+     * as a {@code List<Object>}, whose value-based {@code equals}/{@code hashCode} dedups
+     * composite-PK tables correctly (#81b / ADR-0042).
      */
     private Object primaryKeyValue(ExtractedRow row, DatabaseSchema schema) {
         TableMetadata metadata = schema.get(row.table());
-        if (metadata == null || metadata.primaryKeyColumn() == null) {
+        if (metadata == null || metadata.primaryKeyColumns().isEmpty()) {
             return null;
         }
-        return row.data().get(metadata.primaryKeyColumn());
+        List<String> pkColumns = metadata.primaryKeyColumns();
+        if (pkColumns.size() == 1) {
+            return row.data().get(pkColumns.getFirst());
+        }
+        List<Object> tuple = new ArrayList<>(pkColumns.size());
+        for (String col : pkColumns) {
+            Object v = row.data().get(col);
+            if (v == null) {
+                return null; // incomplete composite key — skip dedup
+            }
+            tuple.add(v);
+        }
+        return tuple;
     }
 }
 

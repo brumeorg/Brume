@@ -14,12 +14,12 @@ logging:
   level:
     com.fungle.brume.writer: DEBUG
 brume:
-  config-path: brume.yml
-  hmac-secret: ${HMAC_SECRET}
-  fpe-key: ${FPE_KEY}
-  hmac-algorithm: ${HMAC_ALGORITHM:HmacSHA256}
-  faker-locale: ${LOCALE:en}
-  pipeline-mode: ${PIPELINE_MODE:STREAMING}
+  config-path: ${BRUME_CONFIG_PATH:brume.yml}
+  hmac-secret: ${BRUME_HMAC_SECRET}
+  fpe-key: ${BRUME_FPE_KEY}
+  hmac-algorithm: ${BRUME_HMAC_ALGORITHM:HmacSHA256}
+  faker-locale: ${BRUME_LOCALE:en}
+  pipeline-mode: ${BRUME_PIPELINE_MODE:STREAMING}
   # max-batch-error-rate: 0.0    # Maximum allowed batch error rate per table (default: 0.0 = no errors tolerated).
                                   # Set to 1.0 to tolerate all errors (not recommended).
   # max-target-rows: 0            # Hard guardrail on planned rows written to the target (0 = disabled).
@@ -31,23 +31,28 @@ brume:
                                   # Sized by distinct anonymized values, not raw row count.
                                   # No eviction strategy: exceeding this limit throws SubstitutionDictionaryOverflowException.
   sink:
-    type: ${SINK_TYPE:JDBC}
-    output-path: ${SINK_OUTPUT_PATH:}
-    compression: ${SINK_COMPRESSION:GZIP}
+    type: ${BRUME_SINK_TYPE:JDBC}
+    output-path: ${BRUME_SINK_OUTPUT_PATH:}
+    compression: ${BRUME_SINK_COMPRESSION:GZIP}
   report:
     json-file: "reports/brume-execution-report.json"
     html-file: "reports/brume-execution-report.html"
     plan-html-file: "reports/brume-plan-report.html"
 replication:
-  pgdump-path: pg_dump
+  pgdump-path: ${BRUME_PGDUMP_PATH:pg_dump}
   # pgdump-timeout-seconds: 300  # Timeout for pg_dump (default: 300s / 5 minutes)
   # ddl-error-mode: STRICT        # STRICT (fail-fast on DDL error, default) or LENIENT (log and continue)
+  pool-size: ${BRUME_PARALLELISM:20}
   source:
-    url: ${SOURCE_DB_URL}
-    username: ${SOURCE_DB_USERNAME}
-    password: ${SOURCE_DB_PASSWORD}
+    url: jdbc:postgresql://${BRUME_SOURCE_HOST}:${BRUME_SOURCE_PORT:5432}/${BRUME_SOURCE_DB}?sslmode=${BRUME_SOURCE_SSLMODE:prefer}
+    username: ${BRUME_SOURCE_USER}
+    password: ${BRUME_SOURCE_PASSWORD}
+  # Target block is only required when brume.sink.type=JDBC. In DUMP / NULL sink
+  # modes the validator (ADR-0028) skips it and Hikari doesn't instantiate a target
+  # pool — the empty defaults below let Spring resolve the placeholders without
+  # forcing the user to set the BRUME_TARGET_* env vars.
   target:
-    url: ${TARGET_DB_URL}
-    username: ${TARGET_DB_USERNAME}
-    password: ${TARGET_DB_PASSWORD}
-  schema: ${SCHEMA}
+    url: jdbc:postgresql://${BRUME_TARGET_HOST:}:${BRUME_TARGET_PORT:5460}/${BRUME_TARGET_DB:}?sslmode=${BRUME_TARGET_SSLMODE:prefer}
+    username: ${BRUME_TARGET_USER:}
+    password: ${BRUME_TARGET_PASSWORD:}
+  schema: ${BRUME_SCHEMA}

@@ -1,6 +1,7 @@
 package com.fungle.brume.schema.model;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,6 +45,31 @@ public record DatabaseSchema(Map<String, TableMetadata> tables) {
     public boolean hasForeignKeys(String table) {
         TableMetadata meta = tables.get(table);
         return meta != null && meta.foreignKeys() != null && !meta.foreignKeys().isEmpty();
+    }
+
+    /**
+     * Names of the tables that have a composite (≥ 2 column) primary key, in schema
+     * iteration order.
+     *
+     * @return unmodifiable list of composite-PK table names (possibly empty)
+     */
+    public List<String> compositePkTables() {
+        return tables.values().stream()
+                .filter(TableMetadata::hasCompositePrimaryKey)
+                .map(TableMetadata::name)
+                .toList();
+    }
+
+    /**
+     * Names of the tables that declare no primary key, in schema iteration order.
+     *
+     * @return unmodifiable list of PK-less table names (possibly empty)
+     */
+    public List<String> tablesWithoutPrimaryKey() {
+        return tables.values().stream()
+                .filter(TableMetadata::hasNoPrimaryKey)
+                .map(TableMetadata::name)
+                .toList();
     }
 }
 

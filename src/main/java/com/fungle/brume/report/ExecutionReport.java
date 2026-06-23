@@ -49,6 +49,7 @@ public class ExecutionReport {
     private volatile SubstitutionDictStats substitutionDict = SubstitutionDictStats.empty();
     private volatile DdlExecutionResult ddlExecution = DdlExecutionResult.empty();
     private volatile BrumeRuntimeContext runtimeContext = BrumeRuntimeContext.empty();
+    private volatile PkStructureStats pkStructure = PkStructureStats.empty();
     private final AtomicLong peakHeapUsedBytes = new AtomicLong(0L);
     private final AtomicLong maxHeapBytes = new AtomicLong(0L);
     private volatile boolean heapWarningTriggered = false;
@@ -174,6 +175,18 @@ public class ExecutionReport {
     }
 
     /**
+     * Captures the source schema's primary-key structure so the report can surface how many
+     * tables have a composite or absent primary key (#81a / ADR-0042).
+     *
+     * @param compositePkTables names of tables with a composite primary key
+     * @param tablesWithoutPk   names of tables without a primary key
+     */
+    public void capturePkStructure(java.util.List<String> compositePkTables,
+                                   java.util.List<String> tablesWithoutPk) {
+        this.pkStructure = PkStructureStats.of(compositePkTables, tablesWithoutPk);
+    }
+
+    /**
      * Records a heap sample and keeps the peak values observed during the run.
      */
     public void recordHeapSample(long usedBytes, long maxBytes, int warningThresholdPercent) {
@@ -250,6 +263,7 @@ public class ExecutionReport {
                 ),
                 ddlExecution,
                 runtimeContext,
+                pkStructure,
                 startedAt
         );
     }

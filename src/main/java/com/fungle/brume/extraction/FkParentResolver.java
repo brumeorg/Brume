@@ -105,8 +105,10 @@ public class FkParentResolver {
                         Throwable cause = e.getCause() != null ? e.getCause() : e;
                         log.error("FK parent resolution task failed at depth {} — aborting pipeline",
                                 depth + 1, cause);
-                        if (cause instanceof RuntimeException re) throw re;
-                        throw new IllegalStateException("FK parent resolution task threw unexpected checked exception at depth " + (depth + 1) + ": " + cause.getMessage(), cause);
+                        // Fail-loud with context (ADR-0018): wrap so the abort message names the
+                        // failing stage. A partial result would leave dangling FK references.
+                        throw new IllegalStateException("FK parent resolution failed at depth "
+                                + (depth + 1) + ": " + cause.getMessage(), cause);
                     }
                 }
             }
@@ -177,6 +179,7 @@ public class FkParentResolver {
 
         Map<ParentReference, Set<Object>> referencedPksByParent = new LinkedHashMap<>();
         for (ForeignKey fk : childMeta.foreignKeys()) {
+            if (fk.isComposite()) continue; // composite FKs handled in a separate tuple-based pass below
             Set<Object> referencedPks = referencedPksByParent.computeIfAbsent(
                     new ParentReference(fk.toTable(), fk.toColumn()),
                     _ -> new LinkedHashSet<>());
@@ -203,6 +206,27 @@ public class FkParentResolver {
             }
 
             report.recordFkParent(parentReference.table(), parents.size());
+        }
+
+        // Composite FKs — match the full column tuple via PostgreSQL row-values (#81b / ADR-0042).
+        // Kept separate from the single-column path above so that path stays byte-for-byte
+        // unchanged. The parent's processedPrimaryKeys entries are List<Object> tuples
+        // (ChunkedTableProcessor.primaryKeyValue), so the contains() check aligns by value.
+        for (ForeignKey fk : childMeta.foreignKeys()) {
+            if (!fk.isComposite()) continue;
+            Set<List<Object>> referencedTuples = cursorReader.readDistinctColumnTuples(
+                    schemaName, childTable, fk.fromColumns(), whereFilter, fetchSize);
+            Set<Object> processedForTable = alreadyProcessedPks.getOrDefault(fk.toTable(), Set.of());
+            referencedTuples.removeIf(processedForTable::contains);
+            if (referencedTuples.isEmpty()) {
+                continue;
+            }
+            List<ExtractedRow> parents = cursorReader.readByPrimaryKeys(
+                    schemaName, fk.toTable(), fk.toColumns(), referencedTuples);
+            for (ExtractedRow parent : parents) {
+                result.tryAddWithPk(parent, fk.toColumns());
+            }
+            report.recordFkParent(fk.toTable(), parents.size());
         }
 
         int remainingDepth = Math.max(0, maxDepth - 1);

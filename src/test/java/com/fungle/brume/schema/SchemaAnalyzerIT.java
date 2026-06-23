@@ -179,23 +179,23 @@ class SchemaAnalyzerIT {
     void shouldLoadPrimaryKeyColumnsForAllTables() {
         DatabaseSchema schema = schemaAnalyzer.analyze("test_brume");
 
-        assertThat(schema.get("users").primaryKeyColumn())
+        assertThat(schema.get("users").singlePrimaryKeyColumn())
                 .as("users PK must be 'id'")
                 .isEqualTo("id");
 
-        assertThat(schema.get("orders").primaryKeyColumn())
+        assertThat(schema.get("orders").singlePrimaryKeyColumn())
                 .as("orders PK must be 'id'")
                 .isEqualTo("id");
 
-        assertThat(schema.get("products").primaryKeyColumn())
+        assertThat(schema.get("products").singlePrimaryKeyColumn())
                 .as("products PK must be 'id'")
                 .isEqualTo("id");
 
-        assertThat(schema.get("order_items").primaryKeyColumn())
+        assertThat(schema.get("order_items").singlePrimaryKeyColumn())
                 .as("order_items PK must be 'id'")
                 .isEqualTo("id");
 
-        assertThat(schema.get("audit_logs").primaryKeyColumn())
+        assertThat(schema.get("audit_logs").singlePrimaryKeyColumn())
                 .as("audit_logs PK must be 'id'")
                 .isEqualTo("id");
     }

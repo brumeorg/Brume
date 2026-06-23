@@ -1,0 +1,40 @@
+# test-config-composite-pk.yaml — CompositePrimaryKeyIT (#81b / ADR-0042)
+#
+# Scenario:
+#   - parent `accounts` has a COMPOSITE primary key (tenant_id, account_id)
+#   - child `transactions` has a COMPOSITE foreign key (tenant_id, account_id) → accounts
+#   - extract transactions WHERE amount >= 100 (a strict subset of rows)
+#   - FkParentResolver must resolve ONLY the exact referenced (tenant_id, account_id)
+#     tuples — never the cross product of the individual columns (the pre-#81b cartesian bug)
+#
+# Key columns are KEEP so referential integrity is trivially checkable on the target;
+# only the non-key `name` column is anonymized, to exercise composite parent rows flowing
+# through the anonymization pipeline.
+extraction:
+  fk_depth: 2
+  fetch_size: 25
+  batch_size: 100
+  tables:
+    - table: transactions
+      filter: "amount >= 100"
+
+anonymization:
+  tables:
+    - table: accounts
+      columns:
+        - name: tenant_id
+          strategy: KEEP
+        - name: account_id
+          strategy: KEEP
+        - name: name
+          strategy: HASH
+    - table: transactions
+      columns:
+        - name: id
+          strategy: KEEP
+        - name: tenant_id
+          strategy: KEEP
+        - name: account_id
+          strategy: KEEP
+        - name: amount
+          strategy: KEEP

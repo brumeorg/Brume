@@ -133,7 +133,7 @@ public class PlanEstimator {
             discoveredTables.add(tableName);
 
             TableMetadata meta = schema.get(tableName);
-            String pk = (meta != null) ? meta.primaryKeyColumn() : null;
+            String pk = (meta != null) ? meta.singlePrimaryKeyColumn() : null;
             if (pk != null) {
                 pkSetSql.put(tableName, buildFilteredPkSql(schemaName, tableName, pk, filter));
             }
@@ -164,8 +164,8 @@ public class PlanEstimator {
                             .add(SqlIdentifiers.quote(fk.fromColumn()) + " IN (" + parentPkSql + ")");
 
                     TableMetadata childMeta = schema.get(childTable);
-                    if (childMeta != null && childMeta.primaryKeyColumn() != null) {
-                        childPkCols.put(childTable, childMeta.primaryKeyColumn());
+                    if (childMeta != null && childMeta.singlePrimaryKeyColumn() != null) {
+                        childPkCols.put(childTable, childMeta.singlePrimaryKeyColumn());
                     }
                 }
             }
@@ -221,7 +221,7 @@ public class PlanEstimator {
                 String childPkSql = pkSetSql.get(childTable);
                 if (childPkSql == null) continue;
 
-                String childPk = childMeta.primaryKeyColumn();
+                String childPk = childMeta.singlePrimaryKeyColumn();
                 if (childPk == null) continue;
 
                 for (ForeignKey fk : childMeta.foreignKeys()) {
@@ -236,7 +236,7 @@ public class PlanEstimator {
 
                     TableMetadata parentMeta = schema.get(parentTable);
                     if (parentMeta == null) continue;
-                    String parentPk = parentMeta.primaryKeyColumn();
+                    String parentPk = parentMeta.singlePrimaryKeyColumn();
                     if (parentPk == null) continue;
 
                     String refSubquery = "SELECT DISTINCT " + SqlIdentifiers.quote(fk.fromColumn())
@@ -588,6 +588,11 @@ public class PlanEstimator {
     private static String addRole(String existingOrigin, String newRole) {
         if (existingOrigin == null || existingOrigin.isBlank()) return newRole;
         if (existingOrigin.contains(newRole)) return existingOrigin;
+        // A directly-configured table keeps "direct" as its sole origin: the FK-role tags
+        // describe how *other* tables were pulled into the plan, not why a configured seed is
+        // present (ADR-0038). In particular, resolving the parents of a table's own fk-child
+        // would otherwise tag the seed as "fk-parent" of its child via the reverse edge.
+        if (existingOrigin.contains("direct")) return existingOrigin;
         return existingOrigin + "+" + newRole;
     }
 }

@@ -59,25 +59,27 @@ public class SchemaAnalyzer {
             ORDER BY kcu.table_name, kcu.ordinal_position
             """;
 
+    // pg_catalog rather than information_schema: the latter joins key_column_usage and
+    // constraint_column_usage with no ordinal correlation, producing a cross product on a
+    // composite FK (mispaired columns, over-fetch — ADR-0042). conkey/confkey are ordinal-
+    // aligned arrays; unnest WITH ORDINALITY pairs child column i with parent column i exactly.
     private static final String FOREIGN_KEYS_SQL = """
             SELECT
-                kcu.table_name   AS from_table,
-                kcu.column_name  AS from_column,
-                ccu.table_name   AS to_table,
-                ccu.column_name  AS to_column
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-               AND tc.table_schema    = kcu.table_schema
-            JOIN information_schema.referential_constraints rc
-                ON tc.constraint_name = rc.constraint_name
-               AND tc.table_schema    = rc.constraint_schema
-            JOIN information_schema.constraint_column_usage ccu
-                ON rc.unique_constraint_name   = ccu.constraint_name
-               AND rc.unique_constraint_schema = ccu.constraint_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-              AND tc.table_schema    = ?
-            ORDER BY kcu.table_name, kcu.column_name
+                con.conname    AS constraint_name,
+                child.relname  AS from_table,
+                fcol.attname   AS from_column,
+                parent.relname AS to_table,
+                pcol.attname   AS to_column
+            FROM pg_constraint con
+            JOIN pg_class child   ON child.oid  = con.conrelid
+            JOIN pg_class parent  ON parent.oid = con.confrelid
+            JOIN pg_namespace ns  ON ns.oid     = con.connamespace
+            JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS cols(child_attnum, parent_attnum, ord) ON true
+            JOIN pg_attribute fcol ON fcol.attrelid = con.conrelid  AND fcol.attnum = cols.child_attnum
+            JOIN pg_attribute pcol ON pcol.attrelid = con.confrelid AND pcol.attnum = cols.parent_attnum
+            WHERE con.contype = 'f'
+              AND ns.nspname  = ?
+            ORDER BY child.relname, con.conname, cols.ord
             """;
 
     private final JdbcTemplate sourceJdbcTemplate;
@@ -117,7 +119,7 @@ public class SchemaAnalyzer {
         boundedQueryExecutor.executeVoid("SchemaAnalyzer.loadForeignKeys", jdbc ->
                 fksByTable.putAll(loadForeignKeys(jdbc, schemaName)));
 
-        Map<String, String> pkByTable = new LinkedHashMap<>();
+        Map<String, List<String>> pkByTable = new LinkedHashMap<>();
         boundedQueryExecutor.executeVoid("SchemaAnalyzer.loadPrimaryKeys", jdbc ->
                 pkByTable.putAll(loadPrimaryKeys(jdbc, schemaName)));
 
@@ -154,7 +156,7 @@ public class SchemaAnalyzer {
     private DatabaseSchema assemble(String schemaName,
                                     Map<String, List<ColumnMetadata>> columnsByTable,
                                     Map<String, List<ForeignKey>> fksByTable,
-                                    Map<String, String> pkByTable) {
+                                    Map<String, List<String>> pkByTable) {
         // LinkedHashMap to preserve the alphabetic table order set by the SQL ORDER BY
         // — propagates a deterministic iteration order downstream to GraphAnalyzer
         // (topological sort visit order), ChunkedTableProcessor and finally SqlFileSink
@@ -163,13 +165,36 @@ public class SchemaAnalyzer {
         for (String tableName : columnsByTable.keySet()) {
             List<ColumnMetadata> columns = columnsByTable.get(tableName);
             List<ForeignKey> fks = fksByTable.getOrDefault(tableName, List.of());
-            String pk = pkByTable.get(tableName); // null for composite PKs or tables without PK
+            // Empty when the table has no PK ; size ≥ 2 for a composite PK (#81b / ADR-0042).
+            List<String> pk = pkByTable.getOrDefault(tableName, List.of());
             tables.put(tableName, new TableMetadata(tableName, columns, fks, pk));
         }
         log.info("Schema '{}' analyzed: {} table(s)", schemaName, tables.size());
         // Wrap rather than Map.copyOf — the latter returns a hash-based map whose
         // iteration order is unspecified, which would discard the alpha sort above.
-        return new DatabaseSchema(Collections.unmodifiableMap(new LinkedHashMap<>(tables)));
+        DatabaseSchema schema = new DatabaseSchema(Collections.unmodifiableMap(new LinkedHashMap<>(tables)));
+        warnAboutPkStructure(schema);
+        return schema;
+    }
+
+    /**
+     * Emits a single boot-time WARN listing the tables whose primary key is composite or
+     * absent — the two shapes that historically disabled per-row dedup and FK-by-PK matching.
+     * Composite and PK-less tables are listed separately so an operator can tell a composite
+     * PK (now supported, #81b) from a table with no PK at all (best-effort). Replaces the
+     * former silent {@code log.debug} in {@code loadPrimaryKeys} (#81a).
+     *
+     * <p>Package-visible for {@code SchemaAnalyzerCompositePkWarningTest}.
+     */
+    static void warnAboutPkStructure(DatabaseSchema schema) {
+        List<String> composite = schema.compositePkTables();
+        List<String> withoutPk = schema.tablesWithoutPrimaryKey();
+        if (!composite.isEmpty()) {
+            log.warn("{} table(s) with a composite primary key: {}", composite.size(), composite);
+        }
+        if (!withoutPk.isEmpty()) {
+            log.warn("{} table(s) without a primary key: {}", withoutPk.size(), withoutPk);
+        }
     }
 
     private static Map<String, List<ColumnMetadata>> loadColumns(JdbcTemplate jdbc,
@@ -188,36 +213,59 @@ public class SchemaAnalyzer {
         return result;
     }
 
-    private static Map<String, String> loadPrimaryKeys(JdbcTemplate jdbc, String schemaName) {
+    private static Map<String, List<String>> loadPrimaryKeys(JdbcTemplate jdbc, String schemaName) {
+        // ORDER BY ordinal_position in PRIMARY_KEYS_SQL guarantees the columns of a composite
+        // PK arrive in their declared order — preserved here in insertion order (#81b).
         Map<String, List<String>> pkColumns = new LinkedHashMap<>();
         jdbc.query(PRIMARY_KEYS_SQL, rs -> {
             String table = rs.getString("table_name");
             String column = rs.getString("column_name");
             pkColumns.computeIfAbsent(table, _ -> new ArrayList<>()).add(column);
         }, schemaName);
-
-        Map<String, String> result = new LinkedHashMap<>();
-        pkColumns.forEach((table, cols) -> {
-            if (cols.size() == 1) {
-                result.put(table, cols.getFirst());
-            } else {
-                log.debug("Table '{}' has a composite PK ({} columns) — pkIndex disabled for this table.",
-                        table, cols.size());
-            }
-        });
-        return result;
+        return pkColumns;
     }
 
     private static Map<String, List<ForeignKey>> loadForeignKeys(JdbcTemplate jdbc, String schemaName) {
-        Map<String, List<ForeignKey>> result = new LinkedHashMap<>();
+        // Accumulate the ordinal-ordered (from,to) column pairs per (table, constraint) so a
+        // composite FK collapses into a single ForeignKey with positionally-aligned column
+        // lists (#81b). FOREIGN_KEYS_SQL's ORDER BY ... cols.ord guarantees pair order.
+        Map<String, FkAccumulator> byConstraint = new LinkedHashMap<>();
         jdbc.query(FOREIGN_KEYS_SQL, rs -> {
+            String constraint = rs.getString("constraint_name");
             String fromTable = rs.getString("from_table");
             String fromColumn = rs.getString("from_column");
             String toTable = rs.getString("to_table");
             String toColumn = rs.getString("to_column");
-            result.computeIfAbsent(fromTable, _ -> new ArrayList<>())
-                    .add(new ForeignKey(fromTable, fromColumn, toTable, toColumn));
+            // Constraint names are unique per table, not per schema — key by table + constraint.
+            byConstraint.computeIfAbsent(fromTable + ' ' + constraint,
+                            _ -> new FkAccumulator(fromTable, toTable))
+                    .add(fromColumn, toColumn);
         }, schemaName);
+
+        Map<String, List<ForeignKey>> result = new LinkedHashMap<>();
+        for (FkAccumulator acc : byConstraint.values()) {
+            result.computeIfAbsent(acc.fromTable, _ -> new ArrayList<>())
+                    .add(new ForeignKey(acc.fromTable, List.copyOf(acc.fromColumns),
+                            acc.toTable, List.copyOf(acc.toColumns)));
+        }
         return result;
+    }
+
+    /** Mutable accumulator of a single FK constraint's ordinal-ordered column pairs. */
+    private static final class FkAccumulator {
+        private final String fromTable;
+        private final String toTable;
+        private final List<String> fromColumns = new ArrayList<>();
+        private final List<String> toColumns = new ArrayList<>();
+
+        FkAccumulator(String fromTable, String toTable) {
+            this.fromTable = fromTable;
+            this.toTable = toTable;
+        }
+
+        void add(String fromColumn, String toColumn) {
+            fromColumns.add(fromColumn);
+            toColumns.add(toColumn);
+        }
     }
 }

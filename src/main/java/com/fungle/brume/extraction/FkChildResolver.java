@@ -111,8 +111,10 @@ public class FkChildResolver {
                 } catch (ExecutionException e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     log.error("FK child resolution task failed — aborting pipeline", cause);
-                    if (cause instanceof RuntimeException re) throw re;
-                    throw new IllegalStateException("FK child resolution task threw unexpected checked exception: " + cause.getMessage(), cause);
+                    // Fail-loud with context (ADR-0018): wrap so the abort message names the
+                    // failing stage. Continuing would leave a partial ExtractionResult with
+                    // dangling FK references on the target.
+                    throw new IllegalStateException("FK child resolution failed: " + cause.getMessage(), cause);
                 }
             }
         }
@@ -133,7 +135,7 @@ public class FkChildResolver {
         if (children.isEmpty()) return;
 
         TableMetadata childMeta = schema.get(fk.fromTable());
-        String childPkCol = childMeta != null ? childMeta.primaryKeyColumn() : null;
+        String childPkCol = childMeta != null ? childMeta.singlePrimaryKeyColumn() : null;
 
         long added = 0;
         for (ExtractedRow child : children) {
@@ -166,8 +168,8 @@ public class FkChildResolver {
         Map<String, Set<Object>> seeds = new LinkedHashMap<>();
         for (String table : result.allTables()) {
             TableMetadata meta = schema.get(table);
-            if (meta == null || meta.primaryKeyColumn() == null) continue;
-            String pkCol = meta.primaryKeyColumn();
+            if (meta == null || meta.singlePrimaryKeyColumn() == null) continue;
+            String pkCol = meta.singlePrimaryKeyColumn();
             Set<Object> alreadyExpanded = expandedPks.getOrDefault(table, Set.of());
 
             Set<Object> newPks = result.getRows(table).stream()

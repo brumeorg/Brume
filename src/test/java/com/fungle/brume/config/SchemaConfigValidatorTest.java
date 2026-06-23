@@ -430,7 +430,7 @@ class SchemaConfigValidatorTest {
     }
 
     private static TableMetadata table(String name, ColumnMetadata... cols) {
-        return new TableMetadata(name, List.of(cols), List.of(), null);
+        return new TableMetadata(name, List.of(cols), List.of(), (String) null);
     }
 
     private static DatabaseSchema schema(TableMetadata... tables) {

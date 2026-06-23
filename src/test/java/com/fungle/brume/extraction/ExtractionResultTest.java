@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,6 +109,46 @@ class ExtractionResultTest {
                 .as("Only one row must be stored (no duplicate)")
                 .hasSize(1);
         assertThat(result.totalRowCount()).isEqualTo(1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 2bis — composite-PK tuples (#81b / ADR-0042)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("tryAddWithPk(composite) dedups by the full (col1,col2) value tuple")
+    void compositePkDedupsByTuple() {
+        List<String> pk = List.of("tenant_id", "account_id");
+        ExtractedRow a = new ExtractedRow("accounts", Map.of("tenant_id", 1, "account_id", 1, "v", "first"));
+        ExtractedRow dup = new ExtractedRow("accounts", Map.of("tenant_id", 1, "account_id", 1, "v", "second"));
+        // Same first column, different second → a DISTINCT tuple, must be accepted.
+        ExtractedRow other = new ExtractedRow("accounts", Map.of("tenant_id", 1, "account_id", 2, "v", "third"));
+
+        assertThat(result.tryAddWithPk(a, pk)).isTrue();
+        assertThat(result.tryAddWithPk(dup, pk))
+                .as("same (tenant_id, account_id) tuple → rejected")
+                .isFalse();
+        assertThat(result.tryAddWithPk(other, pk))
+                .as("(1,2) is a different tuple than (1,1) → accepted (no single-column collapse)")
+                .isTrue();
+
+        assertThat(result.getRows("accounts")).hasSize(2);
+        assertThat(result.containsPrimaryKey("accounts", pk, List.of(1, 1))).isTrue();
+        assertThat(result.containsPrimaryKey("accounts", pk, List.of(1, 2))).isTrue();
+        assertThat(result.containsPrimaryKey("accounts", pk, List.of(2, 1)))
+                .as("an unreferenced tuple is absent — no cross-product over-population")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("tryAddWithPk(composite) with a null tuple component adds unconditionally")
+    void compositePkWithNullComponentAddsUnconditionally() {
+        List<String> pk = List.of("tenant_id", "account_id");
+        ExtractedRow row = new ExtractedRow("accounts", Map.of("tenant_id", 1)); // account_id missing
+
+        assertThat(result.tryAddWithPk(row, pk)).isTrue();
+        assertThat(result.getRows("accounts")).hasSize(1);
+        assertThat(result.containsPrimaryKey("accounts", pk, List.of(1, 1))).isFalse();
     }
 
     @Test

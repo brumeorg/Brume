@@ -248,6 +248,7 @@ public class ReplicationAgent {
             cancellationToken.checkpoint();
 
             DatabaseSchema schema = schemaAnalyzer.analyze(replicationProperties.schema());
+            report.capturePkStructure(schema.compositePkTables(), schema.tablesWithoutPrimaryKey());
 
             config = fkStrategyPropagator.propagate(config, schema);
 
@@ -487,7 +488,7 @@ public class ReplicationAgent {
             if (meta == null) {
                 continue;
             }
-            if (meta.primaryKeyColumn() == null) {
+            if (meta.singlePrimaryKeyColumn() == null) {
                 tablesWithoutPk.add(t.table());
             }
         }

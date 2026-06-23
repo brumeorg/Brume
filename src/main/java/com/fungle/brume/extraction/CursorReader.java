@@ -39,6 +39,17 @@ public class CursorReader {
 
     private static final int IN_CLAUSE_BATCH_SIZE = 1000;
 
+    /** Lexicographic order over PK value tuples — deterministic batch/dump order (#81b / #30b). */
+    private static final Comparator<List<Object>> TUPLE_COMPARATOR = (a, b) -> {
+        int n = Math.min(a.size(), b.size());
+        for (int i = 0; i < n; i++) {
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            int c = ((Comparable) a.get(i)).compareTo(b.get(i));
+            if (c != 0) return c;
+        }
+        return Integer.compare(a.size(), b.size());
+    };
+
     private final JdbcTemplate sourceJdbcTemplate;
 
     public CursorReader(@Qualifier("sourceJdbcTemplate") JdbcTemplate sourceJdbcTemplate) {
@@ -260,6 +271,114 @@ public class CursorReader {
             }
         }, rs -> rows.add(mapRow(rs, tableName)));
         return rows;
+    }
+
+    /**
+     * Composite-key variant of {@link #readByPrimaryKeys(String, String, String, Collection)}:
+     * reads rows whose ordered {@code keyColumns} tuple matches one of {@code keyTuples}, via a
+     * PostgreSQL row-value {@code WHERE (c1, c2) IN ((?,?), ...)} predicate. Tuples are sorted
+     * lexicographically and the SELECT is {@code ORDER BY} the key columns, so the read is
+     * deterministic (#81b / ADR-0042, #30b). Delegates to the scalar path when {@code keyColumns}
+     * has a single element (preserving the exact single-column behavior + its bind shape).
+     */
+    public List<ExtractedRow> readByPrimaryKeys(
+            String schemaName,
+            String tableName,
+            List<String> keyColumns,
+            Collection<List<Object>> keyTuples) {
+
+        if (keyColumns == null || keyColumns.isEmpty()) {
+            throw new IllegalArgumentException("keyColumns must not be empty");
+        }
+        if (keyColumns.size() == 1) {
+            String col = keyColumns.getFirst();
+            List<Object> scalars = new ArrayList<>(keyTuples.size());
+            for (List<Object> t : keyTuples) scalars.add(t.getFirst());
+            return readByPrimaryKeys(schemaName, tableName, col, scalars);
+        }
+        if (keyTuples.isEmpty()) {
+            return List.of();
+        }
+        long start = System.currentTimeMillis();
+
+        List<List<Object>> sorted = new ArrayList<>(keyTuples);
+        try {
+            sorted.sort(TUPLE_COMPARATOR);
+        } catch (ClassCastException e) {
+            log.debug("readByPrimaryKeys(composite) {}.{}: tuple values not mutually Comparable — "
+                    + "intra-table order may vary", schemaName, tableName);
+        }
+
+        String orderBy = keyColumns.stream().map(SqlIdentifiers::quote).collect(Collectors.joining(", "));
+        String rowConstructor = "(" + orderBy + ")";
+
+        List<ExtractedRow> result = new ArrayList<>();
+        for (List<List<Object>> batch : partition(sorted)) {
+            String tupleList = batch.stream()
+                    .map(t -> "(" + t.stream().map(_ -> "?").collect(Collectors.joining(", ")) + ")")
+                    .collect(Collectors.joining(", "));
+            String sql = "SELECT * FROM " + SqlIdentifiers.quoteQualified(schemaName, tableName)
+                    + " WHERE " + rowConstructor + " IN (" + tupleList + ")"
+                    + " ORDER BY " + orderBy;
+            executeStreamingQuery(sql, IN_CLAUSE_BATCH_SIZE, ps -> {
+                int i = 1;
+                for (List<Object> t : batch) {
+                    for (Object v : t) {
+                        ps.setObject(i++, v);
+                    }
+                }
+            }, rs -> result.add(mapRow(rs, tableName)));
+        }
+        log.debug("readByPrimaryKeys(composite) {}.{}: {} tuples → {} rows → {}ms",
+                schemaName, tableName, keyTuples.size(), result.size(), System.currentTimeMillis() - start);
+        return result;
+    }
+
+    /**
+     * Composite variant of {@link #readDistinctColumnValues}: returns the distinct ordered value
+     * tuples of {@code columns}. Tuples containing a {@code null} component are dropped — an
+     * incomplete FK reference cannot match a parent PK. Delegates to the scalar path (wrapping
+     * each value into a one-element list) when {@code columns} has a single element.
+     */
+    public Set<List<Object>> readDistinctColumnTuples(String schemaName, String tableName,
+                                                      List<String> columns, String whereFilter, int fetchSize) {
+        if (columns == null || columns.isEmpty()) {
+            throw new IllegalArgumentException("columns must not be empty");
+        }
+        if (fetchSize <= 0) {
+            throw new IllegalArgumentException("fetchSize must be > 0");
+        }
+        Set<List<Object>> tuples = new LinkedHashSet<>();
+        if (columns.size() == 1) {
+            for (Object v : readDistinctColumnValues(schemaName, tableName, columns.getFirst(), whereFilter, fetchSize)) {
+                if (v != null) {
+                    tuples.add(List.of(v));
+                }
+            }
+            return tuples;
+        }
+
+        String cols = columns.stream().map(SqlIdentifiers::quote).collect(Collectors.joining(", "));
+        StringBuilder sql = new StringBuilder("SELECT DISTINCT ").append(cols)
+                .append(" FROM ").append(SqlIdentifiers.quoteQualified(schemaName, tableName));
+        if (whereFilter != null && !whereFilter.isBlank()) {
+            sql.append(" WHERE ").append(whereFilter);
+        }
+        executeStreamingQuery(sql.toString(), fetchSize, _ -> {}, rs -> {
+            List<Object> tuple = new ArrayList<>(columns.size());
+            boolean hasNull = false;
+            for (int i = 1; i <= columns.size(); i++) {
+                Object v = rs.getObject(i);
+                if (v == null) {
+                    hasNull = true;
+                }
+                tuple.add(v);
+            }
+            if (!hasNull) {
+                tuples.add(tuple);
+            }
+        });
+        return tuples;
     }
 
     private void executeStreamingQuery(String sql, int fetchSize,

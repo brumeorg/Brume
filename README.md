@@ -102,13 +102,21 @@ Semantic types available for `FAKE` and `MASK`: `EMAIL`, `FIRST_NAME`, `LAST_NAM
 ### `.env` — connections and secrets
 
 ```bash
-cp .env.example .env
+cp .env.template .env
 
 # Then edit the .env as in the example
-BRUME_HMAC_SECRET=my-secret
+BRUME_HMAC_SECRET=my-secret-16-chars-min
 BRUME_FPE_KEY=my-fpe-key-16ch
-REPLICATION_SOURCE_PASSWORD=postgres
-...
+BRUME_SOURCE_HOST=db.prod.internal
+BRUME_SOURCE_DB=app_production
+BRUME_SOURCE_USER=brume_reader
+BRUME_SOURCE_PASSWORD=...
+BRUME_SOURCE_SSLMODE=require
+BRUME_SCHEMA=public
+BRUME_TARGET_HOST=localhost
+BRUME_TARGET_DB=app_dev
+BRUME_TARGET_USER=app
+BRUME_TARGET_PASSWORD=...
 ```
 
 ### `brume.yml` — pseudonymization rules

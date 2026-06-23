@@ -129,6 +129,13 @@ public class ReportRenderer {
                 .append(summary.targetSchema())
                 .append('\n');
 
+        PkStructureStats pk = summary.pkStructure();
+        if (pk.tablesWithCompositePk() > 0 || pk.tablesWithoutPk() > 0) {
+            sb.append(" Clés         : ")
+                    .append(pk.tablesWithCompositePk()).append(" table(s) à PK composite, ")
+                    .append(pk.tablesWithoutPk()).append(" sans PK\n");
+        }
+
         String startTime = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 .withZone(ZoneOffset.UTC)
                 .format(summary.startedAt());

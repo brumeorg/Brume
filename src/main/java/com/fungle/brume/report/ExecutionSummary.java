@@ -20,6 +20,7 @@ import java.util.List;
  * @param heap             JVM heap usage summary captured during the run
  * @param ddlExecution     replay result of the pg_dump DDL on the target
  * @param runtimeContext   meta-info (Brume version, config path, faker locale, DDL mode)
+ * @param pkStructure      source-schema primary-key structure (composite / absent PK counts, #81a)
  * @param startedAt        wall-clock instant at which the {@link ExecutionReport} was created
  */
 public record ExecutionSummary(
@@ -34,6 +35,7 @@ public record ExecutionSummary(
         HeapStats heap,
         DdlExecutionResult ddlExecution,
         BrumeRuntimeContext runtimeContext,
+        PkStructureStats pkStructure,
         Instant startedAt
 ) {
 
@@ -42,6 +44,26 @@ public record ExecutionSummary(
         heap = heap == null ? HeapStats.empty() : heap;
         ddlExecution = ddlExecution == null ? DdlExecutionResult.empty() : ddlExecution;
         runtimeContext = runtimeContext == null ? BrumeRuntimeContext.empty() : runtimeContext;
+        pkStructure = pkStructure == null ? PkStructureStats.empty() : pkStructure;
+    }
+
+    public ExecutionSummary(
+            String sourceSchema,
+            String targetSchema,
+            boolean success,
+            String failureCause,
+            PhaseTimings timings,
+            List<TableStats> tableStats,
+            List<StrategyUsage> strategyUsages,
+            SubstitutionDictStats substitutionDict,
+            HeapStats heap,
+            DdlExecutionResult ddlExecution,
+            BrumeRuntimeContext runtimeContext,
+            Instant startedAt
+    ) {
+        this(sourceSchema, targetSchema, success, failureCause, timings,
+                tableStats, strategyUsages, substitutionDict, heap,
+                ddlExecution, runtimeContext, PkStructureStats.empty(), startedAt);
     }
 
     public ExecutionSummary(
@@ -58,7 +80,7 @@ public record ExecutionSummary(
     ) {
         this(sourceSchema, targetSchema, success, failureCause, timings,
                 tableStats, strategyUsages, substitutionDict, heap,
-                DdlExecutionResult.empty(), BrumeRuntimeContext.empty(), startedAt);
+                DdlExecutionResult.empty(), BrumeRuntimeContext.empty(), PkStructureStats.empty(), startedAt);
     }
 
     public ExecutionSummary(
@@ -74,7 +96,7 @@ public record ExecutionSummary(
     ) {
         this(sourceSchema, targetSchema, success, failureCause, timings,
                 tableStats, strategyUsages, substitutionDict, HeapStats.empty(),
-                DdlExecutionResult.empty(), BrumeRuntimeContext.empty(), startedAt);
+                DdlExecutionResult.empty(), BrumeRuntimeContext.empty(), PkStructureStats.empty(), startedAt);
     }
 
     public ExecutionSummary(
@@ -90,7 +112,7 @@ public record ExecutionSummary(
         this(sourceSchema, targetSchema, success, failureCause, timings,
                 tableStats, strategyUsages, SubstitutionDictStats.empty(),
                 HeapStats.empty(), DdlExecutionResult.empty(),
-                BrumeRuntimeContext.empty(), startedAt);
+                BrumeRuntimeContext.empty(), PkStructureStats.empty(), startedAt);
     }
 
     /** Convenience accessor — never null thanks to the compact constructor. */

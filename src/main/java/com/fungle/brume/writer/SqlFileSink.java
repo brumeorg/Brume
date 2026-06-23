@@ -115,9 +115,12 @@ public class SqlFileSink implements Sink {
             writeHeader();
             writeDdl();
             writer.write("SET session_replication_role = 'replica';\n\n");
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException | RuntimeException e) {
             // #79d — close the chain we opened in openDeferredChain() to avoid descriptor leak
-            // when open() fails mid-init (writeHeader / writeDdl / pg_dump unavailable). Without
+            // when open() fails mid-init (writeHeader / writeDdl / pg_dump unavailable). RuntimeException
+            // is included because SchemaReplicator.dumpSchema() (called by writeDdl) signals pg_dump
+            // failures as an unchecked exception — it must still close the chain and surface a typed
+            // WriteException, not leak the descriptor and propagate a raw RuntimeException. Without
             // this, the caller may skip close() on a failed open() and the FileOutputStream
             // stays open — on Windows, the resulting file lock blocks any retry that wants
             // to write the same path.
