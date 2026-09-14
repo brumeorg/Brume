@@ -4,6 +4,7 @@ import com.fungle.brume.command.BrumeCommand;
 import com.fungle.brume.command.BrumeExecutionExceptionHandler;
 import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.config.ReplicationProperties;
+import com.fungle.brume.init.BrumeInitCommand;
 import com.fungle.brume.output.OutputMode;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.slf4j.Logger;
@@ -17,6 +18,8 @@ import picocli.CommandLine;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 
 @SpringBootApplication
 @EnableConfigurationProperties({BrumeProperties.class, ReplicationProperties.class})
@@ -25,6 +28,16 @@ public class BrumeApplication{
 
     private static final Logger log = LoggerFactory.getLogger(BrumeApplication.class);
 
+    /**
+     * Known picocli subcommands. When none of these tokens is present in the CLI args,
+     * picocli would fall back to {@link BrumeCommand#call()} which merely prints the
+     * usage — booting Spring for that is wasted work and, worse, requires valid DB
+     * config the user hasn't set yet (they may be calling {@code brume -v} to inspect
+     * the tool, not to run a pipeline). See pre-boot short-circuit below.
+     */
+    static final Set<String> SUBCOMMANDS =
+            Set.of("execute", "plan", "dry-run", "diag", "audit", "init");
+
     public static void main(String[] args) {
         // Intercept --help / -h / --version / -V before Spring starts so the output
         // is clean (no HikariCP/Spring startup logs). Safe because picocli's mixin
@@ -32,6 +45,28 @@ public class BrumeApplication{
         var argList = Arrays.asList(args);
         if (argList.contains("--help") || argList.contains("-h")
                 || argList.contains("--version") || argList.contains("-V")) {
+            System.exit(new CommandLine(new BrumeCommand(null, null, null)).execute(args));
+        }
+
+        // `init` runs standalone : no Spring context, no .env, no DB (ADR-0045).
+        // It creates brume.yml + .env from classpath templates, so booting Spring
+        // (which requires BRUME_* env vars) would defeat the bootstrap purpose.
+        if (BrumeInitCommand.isInitInvocation(argList)) {
+            System.exit(new CommandLine(new BrumeInitCommand()).execute());
+        }
+
+        // No subcommand → picocli's fallback is BrumeCommand.call() which prints
+        // usage. Booting Spring here would (a) log a screen of Spring/HikariCP DEBUG
+        // lines for nothing under `brume -v`, and (b) crash on ReplicationPropertiesValidator
+        // when the user hasn't configured replication.target.url yet. Short-circuit
+        // to picocli-only invocation, mirroring the --help path.
+        //
+        // Exception : `spring-boot-maven-plugin:process-aot` invokes this main with
+        // empty args and expects SpringApplication.run() to run (so it can intercept
+        // and generate AOT sources under target/spring-aot/main/sources). Skip the
+        // short-circuit in that phase — the marker `spring.aot.processing=true` is
+        // set by Spring's AbstractAotProcessor before it hands off to the app main.
+        if (!hasKnownSubcommand(argList) && !isAotProcessingPhase()) {
             System.exit(new CommandLine(new BrumeCommand(null, null, null)).execute(args));
         }
 
@@ -246,6 +281,32 @@ public class BrumeApplication{
             System.setProperty("brume.checkpoint.enabled", "true");
             System.setProperty("brume.checkpoint.path", found);
         }
+    }
+
+    /**
+     * Returns true when {@code args} contains any of the known picocli subcommand tokens.
+     * Used by {@link #main} to skip Spring boot when the user only passes global flags
+     * (or nothing at all) — in that case picocli's fallback is {@link BrumeCommand#call()}
+     * which only prints usage, so booting Spring is wasted work.
+     */
+    static boolean hasKnownSubcommand(List<String> args) {
+        for (String arg : args) {
+            if (SUBCOMMANDS.contains(arg)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * True when the Spring Boot AOT processor (spring-boot-maven-plugin:process-aot)
+     * is invoking this main to generate AOT sources. Set by
+     * {@code org.springframework.context.aot.AbstractAotProcessor} before it hands off
+     * to the application main class. In this phase we must let
+     * {@link SpringApplication#run} run so Spring can intercept and emit the sources
+     * under {@code target/spring-aot/main/sources} — short-circuiting would break the
+     * native build.
+     */
+    static boolean isAotProcessingPhase() {
+        return Boolean.parseBoolean(System.getProperty("spring.aot.processing"));
     }
 
     private static void failPreBoot(String code, String message, String suggestion) {

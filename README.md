@@ -187,11 +187,18 @@ The `type` specifies the **semantics of the field** for the `FAKE` and `MASK` st
 ## CLI
 
 ```bash
+brume init        # Bootstrap a new project: checks pg_dump 17 and creates brume.yml + .env
 brume plan        # Estimates volumes and detects uncovered PII columns (read-only)
 brume execute     # Runs the full pseudonymization
 brume dry-run     # Runs without writing (NullSink — for validating the config)
 brume --help
 ```
+
+`brume init` is a one-shot bootstrap command for new projects. It probes `pg_dump`
+(expected major version ≥ 17), prints the OS-specific install command if missing
+(non-blocking warning — init continues), and copies the bundled `brume.yml` and
+`.env` templates into the current directory. Existing files are kept by default
+(prompt to overwrite). See ADR-0045.
 
 Flags available on all subcommands:
 

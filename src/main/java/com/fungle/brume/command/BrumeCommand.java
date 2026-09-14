@@ -78,6 +78,15 @@ public class BrumeCommand implements Callable<Integer> {
         return 0;
     }
 
+    @CommandLine.Command(name = "init",
+            description = "Bootstrap a new project : check pg_dump and create brume.yml + .env from templates. "
+                    + "Runs standalone (no Spring, no DB) — see ADR-0045.")
+    public Integer init() {
+        // Never invoked in practice — BrumeApplication.main intercepts `init` before Spring boot.
+        // This stub exists only so `brume --help` lists the subcommand.
+        return 0;
+    }
+
     @CommandLine.Command(name = "diag",
             description = "Boot the application context and report wiring/config/pool status. "
                     + "Does NOT contact the source or target databases. Suitable as a Docker HEALTHCHECK "
