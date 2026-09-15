@@ -17,7 +17,7 @@ import java.util.List;
  * indistinguishable from a successful real run (zero conflicts, zero batch errors) —
  * the user sees exactly what would have been written.
  *
- * <p>Wired by {@code SinkConfig} via {@code @ConditionalOnProperty(brume.sink.type=NULL)}.
+ * <p>Wired by {@code SinkConfig#sink} when {@code brume.sink.type=NULL} (runtime switch).
  */
 public class NullSink implements Sink {
 

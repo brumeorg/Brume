@@ -48,7 +48,7 @@ import java.util.stream.Gatherers;
  * batch error rate is compared against {@code brume.max-batch-error-rate}; if it
  * exceeds the threshold, {@link BatchErrorThresholdExceededException} is thrown.
  *
- * <p>Wired by {@code SinkConfig} via {@code @ConditionalOnProperty(brume.sink.type=jdbc)}.
+ * <p>Wired by {@code SinkConfig#sink} when {@code brume.sink.type=JDBC} (runtime switch).
  */
 public class JdbcSink implements Sink {
 

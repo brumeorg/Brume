@@ -47,7 +47,7 @@ import java.util.zip.GZIPOutputStream;
  * {@code GZIPOutputStream} / {@code ZstdOutputStream} between the
  * {@code FileOutputStream} and the writer.
  *
- * <p>Wired by {@code SinkConfig} via {@code @ConditionalOnProperty(brume.sink.type=dump)}.
+ * <p>Wired by {@code SinkConfig#sink} when {@code brume.sink.type=DUMP} (runtime switch).
  */
 public class SqlFileSink implements Sink {
 

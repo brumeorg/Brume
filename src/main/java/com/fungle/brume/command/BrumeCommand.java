@@ -21,7 +21,7 @@ import static com.fungle.brume.command.CommandEnum.PLAN;
 @CommandLine.Command(
         name = "brume",
         mixinStandardHelpOptions = true,  // --help et --version auto
-        version = "1.0.0",
+        versionProvider = BrumeVersionProvider.class,
         description = "Brume"
 )
 @Component
