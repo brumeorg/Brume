@@ -56,12 +56,26 @@ class InitFileWriterTest {
     }
 
     @Test
-    @DisplayName("bundled .env template resolves and contains BRUME_HMAC_SECRET")
-    void envTemplateResolves(@TempDir Path tmp) throws IOException {
+    @DisplayName("bundled JDBC .env template resolves and contains BRUME_HMAC_SECRET + BRUME_SINK_TYPE=JDBC")
+    void jdbcEnvTemplateResolves(@TempDir Path tmp) throws IOException {
         InitFileWriter writer = new InitFileWriter(tmp);
         InitFileWriter.Outcome outcome = writer.writeFromClasspath(
-                BrumeInitCommand.ENV_RESOURCE, ".env", false);
+                BrumeInitCommand.ENV_JDBC_RESOURCE, ".env.brume", false);
         assertThat(outcome).isEqualTo(InitFileWriter.Outcome.CREATED);
-        assertThat(Files.readString(tmp.resolve(".env"))).contains("BRUME_HMAC_SECRET");
+        String env = Files.readString(tmp.resolve(".env.brume"));
+        assertThat(env).contains("BRUME_HMAC_SECRET");
+        assertThat(env).contains("BRUME_SINK_TYPE=JDBC");
+    }
+
+    @Test
+    @DisplayName("bundled DUMP .env template resolves and carries BRUME_SINK_TYPE=DUMP")
+    void dumpEnvTemplateResolves(@TempDir Path tmp) throws IOException {
+        InitFileWriter writer = new InitFileWriter(tmp);
+        InitFileWriter.Outcome outcome = writer.writeFromClasspath(
+                BrumeInitCommand.ENV_DUMP_RESOURCE, ".env.brume", false);
+        assertThat(outcome).isEqualTo(InitFileWriter.Outcome.CREATED);
+        String env = Files.readString(tmp.resolve(".env.brume"));
+        assertThat(env).contains("BRUME_HMAC_SECRET");
+        assertThat(env).contains("BRUME_SINK_TYPE=DUMP");
     }
 }

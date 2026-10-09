@@ -99,12 +99,12 @@ Semantic types available for `FAKE` and `MASK`: `EMAIL`, `FIRST_NAME`, `LAST_NAM
 
 ## Configuration
 
-### `.env` — connections and secrets
+### `.env.brume` — connections and secrets
 
 ```bash
-cp .env.template .env
+brume init jdbc   # (or `brume init dump`) creates .env.brume from the matching template
 
-# Then edit the .env as in the example
+# Then edit .env.brume as in the example
 BRUME_HMAC_SECRET=my-secret-16-chars-min
 BRUME_FPE_KEY=my-fpe-key-16ch
 BRUME_SOURCE_HOST=db.prod.internal
@@ -187,7 +187,9 @@ The `type` specifies the **semantics of the field** for the `FAKE` and `MASK` st
 ## CLI
 
 ```bash
-brume init        # Bootstrap a new project: checks pg_dump 17 and creates brume.yml + .env
+brume init jdbc   # Bootstrap for JDBC sink (writes to a target DB)
+brume init dump   # Bootstrap for DUMP sink (writes a SQL file)
+brume init        # No subcommand → interactive prompt (JDBC fallback in non-TTY shells)
 brume plan        # Estimates volumes and detects uncovered PII columns (read-only)
 brume execute     # Runs the full pseudonymization
 brume dry-run     # Runs without writing (NullSink — for validating the config)
@@ -196,9 +198,10 @@ brume --help
 
 `brume init` is a one-shot bootstrap command for new projects. It probes `pg_dump`
 (expected major version ≥ 17), prints the OS-specific install command if missing
-(non-blocking warning — init continues), and copies the bundled `brume.yml` and
-`.env` templates into the current directory. Existing files are kept by default
-(prompt to overwrite). See ADR-0045.
+(non-blocking warning — init continues), and copies the bundled `brume.yml` and a
+sink-specific `.env.brume` template into the current directory. Existing files are
+kept by default (prompt to overwrite). The dedicated `.env.brume` filename avoids
+collisions with Docker Compose or other tooling that reads `.env`. See ADR-0045.
 
 Flags available on all subcommands:
 

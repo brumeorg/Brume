@@ -48,11 +48,16 @@ public class BrumeApplication{
             System.exit(new CommandLine(new BrumeCommand(null, null, null)).execute(args));
         }
 
-        // `init` runs standalone : no Spring context, no .env, no DB (ADR-0045).
-        // It creates brume.yml + .env from classpath templates, so booting Spring
+        // `init` runs standalone : no Spring context, no .env.brume, no DB (ADR-0045).
+        // It creates brume.yml + .env.brume from classpath templates, so booting Spring
         // (which requires BRUME_* env vars) would defeat the bootstrap purpose.
+        // Pass only the args AFTER `init` so picocli routes to the matching subcommand
+        // (jdbc / dump) — treating BrumeInitCommand as the root command here, not as
+        // a subcommand of BrumeCommand.
         if (BrumeInitCommand.isInitInvocation(argList)) {
-            System.exit(new CommandLine(new BrumeInitCommand()).execute());
+            int initIdx = argList.indexOf("init");
+            String[] subArgs = Arrays.copyOfRange(args, initIdx + 1, args.length);
+            System.exit(new CommandLine(new BrumeInitCommand()).execute(subArgs));
         }
 
         // No subcommand → picocli's fallback is BrumeCommand.call() which prints
@@ -337,6 +342,7 @@ public class BrumeApplication{
 
     private static void loadDotEnv() {
         Dotenv.configure()
+                .filename(".env.brume")
                 .ignoreIfMissing()
                 .load()
                 .entries()

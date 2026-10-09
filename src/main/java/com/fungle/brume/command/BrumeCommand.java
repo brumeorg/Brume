@@ -79,7 +79,7 @@ public class BrumeCommand implements Callable<Integer> {
     }
 
     @CommandLine.Command(name = "init",
-            description = "Bootstrap a new project : check pg_dump and create brume.yml + .env from templates. "
+            description = "Bootstrap a new project : check pg_dump and create brume.yml + .env.brume from templates. "
                     + "Runs standalone (no Spring, no DB) — see ADR-0045.")
     public Integer init() {
         // Never invoked in practice — BrumeApplication.main intercepts `init` before Spring boot.

@@ -10,5 +10,7 @@
       "methods": [ { "name": "femaleFirstName", "parameterTypes": [] } ]
     }
   ],
-  "resources": []
+  "resources": [
+    { "glob": "META-INF/maven/com.fungle/brume/pom.properties" }
+  ]
 }

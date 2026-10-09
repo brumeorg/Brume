@@ -156,11 +156,12 @@ public class BrumeRuntimeHints implements RuntimeHintsRegistrar {
         // --- `brume init` templates copied by Maven from repo root to /init/ in the JAR
         // (pom.xml <targetPath>init</targetPath>). Without these hints the native image
         // omits them; brume.example.yml happens to be picked up by the Datafaker
-        // "**/*.yml" glob below, but .env.template has no wildcard cover so
-        // getResourceAsStream("/init/.env.template") returns null and `brume init`
-        // fails with INIT_IO_ERROR. Register both explicitly to avoid coupling to the
+        // "**/*.yml" glob below, but the .env.*.template files have no wildcard cover so
+        // getResourceAsStream("/init/.env.jdbc.template") returns null and `brume init`
+        // fails with INIT_IO_ERROR. Register them explicitly to avoid coupling to the
         // Datafaker glob. ---
-        hints.resources().registerPattern("init/.env.template");
+        hints.resources().registerPattern("init/.env.jdbc.template");
+        hints.resources().registerPattern("init/.env.dump.template");
         hints.resources().registerPattern("init/brume.example.yml");
 
         // --- Thymeleaf standard expression utility objects (#lists, #strings, #dates, …).

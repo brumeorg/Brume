@@ -76,19 +76,22 @@ class BrumeRuntimeHintsTest {
     }
 
     @Test
-    @DisplayName("brume init templates (init/.env.template + init/brume.example.yml) are registered as native-image resources")
+    @DisplayName("brume init templates (init/.env.jdbc|dump.template + init/brume.example.yml) are registered as native-image resources")
     void initTemplatesAreRegisteredForNativeImage() {
         // Regression net for the native-image bug where `brume init` failed with
-        // [INIT_IO_ERROR] Classpath resource not found: /init/.env.template — the
+        // [INIT_IO_ERROR] Classpath resource not found: /init/.env.*.template — the
         // resource is copied by Maven (pom.xml <targetPath>init</targetPath>) but
         // GraalVM only embeds resources declared via hints.resources().registerPattern.
-        // Locking both templates here catches deletion of either registerPattern call
+        // Locking the templates here catches deletion of any registerPattern call
         // before it reaches a native build.
         RuntimeHints hints = new RuntimeHints();
         new BrumeRuntimeHints().registerHints(hints, getClass().getClassLoader());
 
-        assertThat(RuntimeHintsPredicates.resource().forResource("init/.env.template").test(hints))
-                .as("init/.env.template must be a registered native-image resource so `brume init` can copy it")
+        assertThat(RuntimeHintsPredicates.resource().forResource("init/.env.jdbc.template").test(hints))
+                .as("init/.env.jdbc.template must be a registered native-image resource so `brume init jdbc` can copy it")
+                .isTrue();
+        assertThat(RuntimeHintsPredicates.resource().forResource("init/.env.dump.template").test(hints))
+                .as("init/.env.dump.template must be a registered native-image resource so `brume init dump` can copy it")
                 .isTrue();
         assertThat(RuntimeHintsPredicates.resource().forResource("init/brume.example.yml").test(hints))
                 .as("init/brume.example.yml must be a registered native-image resource so `brume init` can copy it")

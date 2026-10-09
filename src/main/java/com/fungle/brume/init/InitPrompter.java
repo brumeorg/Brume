@@ -8,7 +8,16 @@ public interface InitPrompter {
 
     enum Answer { YES, NO, NO_TTY }
 
+    enum Mode { JDBC, DUMP }
+
     Answer ask(String question, boolean defaultYes);
+
+    /**
+     * Prompts for the sink mode when {@code brume init} is called without an explicit
+     * {@code jdbc} / {@code dump} subcommand. Returns {@link Mode#JDBC} as a fallback
+     * in non-interactive shells.
+     */
+    Mode chooseMode();
 
     void info(String message);
 
@@ -45,6 +54,20 @@ public interface InitPrompter {
         }
 
         @Override
+        public Mode chooseMode() {
+            out.println("Which sink mode?");
+            out.println("  [1] JDBC — write to a target Postgres database (default)");
+            out.println("  [2] DUMP — write to a SQL file (no target DB required)");
+            String raw = console.readLine("Choose [1/2] ");
+            if (raw == null) return Mode.JDBC;
+            String reply = raw.trim().toLowerCase(Locale.ROOT);
+            return switch (reply) {
+                case "2", "dump", "d" -> Mode.DUMP;
+                default -> Mode.JDBC;
+            };
+        }
+
+        @Override
         public void info(String message) {
             out.println(message);
         }
@@ -68,6 +91,11 @@ public interface InitPrompter {
         @Override
         public Answer ask(String question, boolean defaultYes) {
             return Answer.NO_TTY;
+        }
+
+        @Override
+        public Mode chooseMode() {
+            return Mode.JDBC;
         }
 
         @Override

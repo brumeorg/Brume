@@ -10,14 +10,17 @@ import java.util.concurrent.Callable;
 @CommandLine.Command(
         name = "init",
         description = "Bootstrap a new Brume project : checks pg_dump " + PgDumpChecker.REQUIRED_MAJOR_VERSION
-                + " and creates brume.yml and .env from bundled templates."
+                + " and creates brume.yml and .env.brume from bundled templates. "
+                + "Pick a sink mode via the subcommand (jdbc, dump) or omit it to be prompted.",
+        subcommands = {BrumeInitCommand.JdbcInit.class, BrumeInitCommand.DumpInit.class}
 )
 public final class BrumeInitCommand implements Callable<Integer> {
 
     static final String BRUME_YML = "brume.yml";
-    static final String ENV_FILE = ".env";
+    static final String ENV_FILE = ".env.brume";
     static final String BRUME_YML_RESOURCE = "/init/brume.example.yml";
-    static final String ENV_RESOURCE = "/init/.env.template";
+    static final String ENV_JDBC_RESOURCE = "/init/.env.jdbc.template";
+    static final String ENV_DUMP_RESOURCE = "/init/.env.dump.template";
 
     private final PgDumpChecker pgDumpChecker;
     private final OsDetector osDetector;
@@ -43,23 +46,35 @@ public final class BrumeInitCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        prompter.info("Brume init — bootstrap a new project");
+        InitPrompter.Mode mode = prompter.chooseMode();
+        return runInit(mode);
+    }
+
+    Integer runInit(InitPrompter.Mode mode) {
+        prompter.info("Brume init — bootstrap a new project (" + mode + " mode)");
         prompter.info("");
         checkPgDump();
         prompter.info("");
         try {
             writeFile(BRUME_YML_RESOURCE, BRUME_YML);
-            writeFile(ENV_RESOURCE, ENV_FILE);
+            writeFile(resourceFor(mode), ENV_FILE);
         } catch (IOException e) {
             prompter.warn("[INIT_IO_ERROR] " + e.getMessage());
             return 1;
         }
         prompter.info("");
         prompter.info("Next steps :");
-        prompter.info("  1. Edit .env with your database credentials and secrets.");
+        prompter.info("  1. Edit " + ENV_FILE + " with your database credentials and secrets.");
         prompter.info("  2. Edit brume.yml to declare tables and anonymization strategies.");
         prompter.info("  3. Run  brume plan  to preview the extraction (read-only).");
         return 0;
+    }
+
+    private static String resourceFor(InitPrompter.Mode mode) {
+        return switch (mode) {
+            case JDBC -> ENV_JDBC_RESOURCE;
+            case DUMP -> ENV_DUMP_RESOURCE;
+        };
     }
 
     private void checkPgDump() {
@@ -122,5 +137,29 @@ public final class BrumeInitCommand implements Callable<Integer> {
 
     public static boolean isInitInvocation(List<String> args) {
         return args.contains("init");
+    }
+
+    @CommandLine.Command(name = "jdbc",
+            description = "Bootstrap with JDBC sink (writes to a target Postgres DB).")
+    static final class JdbcInit implements Callable<Integer> {
+        @CommandLine.ParentCommand
+        BrumeInitCommand parent;
+
+        @Override
+        public Integer call() {
+            return parent.runInit(InitPrompter.Mode.JDBC);
+        }
+    }
+
+    @CommandLine.Command(name = "dump",
+            description = "Bootstrap with DUMP sink (writes a SQL file, no target DB required).")
+    static final class DumpInit implements Callable<Integer> {
+        @CommandLine.ParentCommand
+        BrumeInitCommand parent;
+
+        @Override
+        public Integer call() {
+            return parent.runInit(InitPrompter.Mode.DUMP);
+        }
     }
 }

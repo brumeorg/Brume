@@ -99,7 +99,7 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.84</version>
+            <version>1.85</version>
         </dependency>
 
         <dependency>
@@ -110,7 +110,7 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.21.5</version>
+            <version>2.21.7</version>
         </dependency>
 
         <dependency>
@@ -173,7 +173,8 @@
 				<targetPath>init</targetPath>
 				<includes>
 					<include>brume.example.yml</include>
-					<include>.env.template</include>
+					<include>.env.jdbc.template</include>
+					<include>.env.dump.template</include>
 				</includes>
 			</resource>
 		</resources>

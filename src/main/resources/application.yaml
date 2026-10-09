@@ -1,6 +1,6 @@
 spring:
   config:
-    import: optional:dotenv:./.env
+    import: optional:dotenv:./.env.brume
   main:
     web-application-type: none
     banner-mode: off
