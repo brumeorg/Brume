@@ -43,6 +43,14 @@ public class BrumePropertiesValidator {
     /** Valid FPE key lengths in UTF-8 bytes (AES-128, AES-192, AES-256). */
     private static final Set<Integer> VALID_FPE_KEY_LENGTHS = Set.of(16, 24, 32);
 
+    // Public values shipped in /init/.env.{jdbc,dump}.template — if the running config still
+    // carries these, the user forgot to rotate after `brume init`. The pair is intentionally
+    // listed in the README and in co-founder onboarding, so finding them in prod would be a
+    // leak-sized foot-gun. Guarded by a WARN, not an exception — some integration tests inject
+    // template-shaped values on purpose, and we don't want to lock out legitimate dev runs.
+    private static final String TEMPLATE_HMAC_SECRET = "X7kymP9qL2nR4vWz";
+    private static final String TEMPLATE_FPE_KEY = "A3bC9dE2fG7hI1jK";
+
     private final BrumeProperties properties;
 
     /**
@@ -64,10 +72,32 @@ public class BrumePropertiesValidator {
         log.debug("Validating cryptographic key properties...");
         validateHmacSecret();
         validateFpeKey();
+        warnOnTemplateSecrets();
         validateGuardrails();
         validateOutputPaths();
         validateSinkCompressionExtension();
         log.info("✓ Cryptographic key properties validated successfully");
+    }
+
+    /**
+     * Loud WARN when the running config carries the public dev-template secrets from
+     * {@code /init/.env.{jdbc,dump}.template}. These values are documented in the README
+     * and in co-founder onboarding — leaking them to a shared target would make the
+     * anonymization reversible by anyone with a copy of the public template.
+     *
+     * <p>Non-blocking by design: integration tests and local demos legitimately boot with
+     * template-shaped secrets, so this is a signal, not a gate. ADR-0047 § consequences.
+     */
+    private void warnOnTemplateSecrets() {
+        boolean hmacIsTemplate = TEMPLATE_HMAC_SECRET.equals(properties.hmacSecret());
+        boolean fpeIsTemplate = TEMPLATE_FPE_KEY.equals(properties.fpeKey());
+        if (!hmacIsTemplate && !fpeIsTemplate) return;
+        String which = hmacIsTemplate && fpeIsTemplate
+                ? "brume.hmac-secret and brume.fpe-key"
+                : hmacIsTemplate ? "brume.hmac-secret" : "brume.fpe-key";
+        log.warn("[CONFIG_DEV_SECRET_DETECTED] {} still match the public template values "
+                + "shipped by `brume init`. Rotate before any run against a target that "
+                + "leaves your laptop — e.g. 'openssl rand -hex 16' for each.", which);
     }
 
     /**

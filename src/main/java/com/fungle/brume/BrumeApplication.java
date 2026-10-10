@@ -17,6 +17,8 @@ import picocli.CommandLine;
 
 import org.springframework.context.ConfigurableApplicationContext;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -73,6 +75,15 @@ public class BrumeApplication{
         // set by Spring's AbstractAotProcessor before it hands off to the app main.
         if (!hasKnownSubcommand(argList) && !isAotProcessingPhase()) {
             System.exit(new CommandLine(new BrumeCommand(null, null, null)).execute(args));
+        }
+
+        // Friendly guard against the "I just cloned the repo and ran `brume plan`" trap.
+        // Without this, Spring would boot and crash on a BindException over BRUME_HMAC_SECRET
+        // — unactionable for a first-time user. Short-circuit with a message that names the
+        // actual fix (`brume init`). Skipped during AOT so native builds that inject properties
+        // via Maven system properties still work.
+        if (!isAotProcessingPhase()) {
+            guardEnvOrFail();
         }
 
         ConfigurableApplicationContext ctx = bootContext(args);
@@ -312,6 +323,39 @@ public class BrumeApplication{
      */
     static boolean isAotProcessingPhase() {
         return Boolean.parseBoolean(System.getProperty("spring.aot.processing"));
+    }
+
+    /**
+     * Returns true when at least one source of BRUME_* configuration is available :
+     * a {@code .env.brume} file under {@code baseDir}, a {@code BRUME_HMAC_SECRET} in the OS
+     * environment, or a matching system property. Fail-fast guard against the "cloned the
+     * repo and ran {@code brume plan}" trap where Spring would otherwise crash on a
+     * {@code BindException} that doesn't tell the user to run {@code brume init}.
+     *
+     * <p>Visible as a package-private test seam so {@link BrumeApplicationEnvGuardTest} can
+     * inject a {@code @TempDir} and cover each branch without having to call
+     * {@link #main(String[])} (which would call {@link System#exit(int)}). The {@code baseDir}
+     * parameter is intentional : {@code Paths.get(".env.brume")} resolves via the UnixFileSystem's
+     * {@code defaultDirectory} cached at JVM init, which cannot be overridden by setting
+     * {@code user.dir} inside a test.
+     */
+    static boolean hasAnyEnvSource(java.nio.file.Path baseDir) {
+        if (Files.exists(baseDir.resolve(".env.brume"))) return true;
+        String hmacEnv = System.getenv("BRUME_HMAC_SECRET");
+        if (hmacEnv != null && !hmacEnv.isBlank()) return true;
+        String hmacSysProp = System.getProperty("brume.hmac-secret");
+        if (hmacSysProp != null && !hmacSysProp.isBlank()) return true;
+        String hmacEnvAsSysProp = System.getProperty("BRUME_HMAC_SECRET");
+        return hmacEnvAsSysProp != null && !hmacEnvAsSysProp.isBlank();
+    }
+
+    private static void guardEnvOrFail() {
+        if (hasAnyEnvSource(Paths.get("."))) return;
+        failPreBoot("CONFIG_ENV_MISSING",
+                "No .env.brume found in the current directory, and BRUME_HMAC_SECRET is "
+                        + "not set in the environment.",
+                "Run 'brume init jdbc' (or 'brume init dump') to create a .env.brume template, "
+                        + "then edit it with your database credentials and secrets. See ADR-0045 / ADR-0047.");
     }
 
     private static void failPreBoot(String code, String message, String suggestion) {

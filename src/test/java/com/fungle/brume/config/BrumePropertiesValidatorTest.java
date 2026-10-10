@@ -1,5 +1,9 @@
 package com.fungle.brume.config;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fungle.brume.config.BrumeProperties.JdbcSinkProperties;
 import com.fungle.brume.config.BrumeProperties.PlanProperties;
 import com.fungle.brume.config.BrumeProperties.ReportProperties;
@@ -9,7 +13,9 @@ import com.fungle.brume.writer.CompressionType;
 import com.fungle.brume.writer.CopyMode;
 import com.fungle.brume.writer.SinkType;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -187,6 +193,70 @@ class BrumePropertiesValidatorTest {
         assertThatThrownBy(validator::validate)
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("brume.fpe-key must be exactly 16, 24, or 32 UTF-8 bytes (got 18)");
+    }
+
+    // ==================== Dev-template secret guard (ADR-0047) ====================
+
+    @Test
+    void validate_warnsLoudly_whenHmacSecretIsTemplateDefault() {
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            BrumeProperties props = createProperties("X7kymP9qL2nR4vWz", "0123456789abcdef");
+            new BrumePropertiesValidator(props).validate();
+
+            assertThat(appender.list)
+                    .as("Template HMAC must trigger the dev-secret WARN")
+                    .anyMatch(ev -> ev.getLevel() == Level.WARN
+                            && ev.getFormattedMessage().contains("[CONFIG_DEV_SECRET_DETECTED]")
+                            && ev.getFormattedMessage().contains("brume.hmac-secret"));
+        } finally {
+            detachAppender(appender);
+        }
+    }
+
+    @Test
+    void validate_warnsLoudly_whenBothSecretsAreTemplateDefaults() {
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            BrumeProperties props = createProperties("X7kymP9qL2nR4vWz", "A3bC9dE2fG7hI1jK");
+            new BrumePropertiesValidator(props).validate();
+
+            assertThat(appender.list)
+                    .anyMatch(ev -> ev.getLevel() == Level.WARN
+                            && ev.getFormattedMessage().contains("brume.hmac-secret and brume.fpe-key"));
+        } finally {
+            detachAppender(appender);
+        }
+    }
+
+    @Test
+    void validate_doesNotWarn_whenSecretsAreCustom() {
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            BrumeProperties props = createProperties("my-own-secret-key", "my-own-fpe-key-1");
+            new BrumePropertiesValidator(props).validate();
+
+            assertThat(appender.list)
+                    .as("Custom secrets must not trigger the dev-secret WARN")
+                    .noneMatch(ev -> ev.getFormattedMessage().contains("[CONFIG_DEV_SECRET_DETECTED]"));
+        } finally {
+            detachAppender(appender);
+        }
+    }
+
+    private static ListAppender<ILoggingEvent> attachAppender() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        Logger validatorLogger = (Logger) LoggerFactory.getLogger(BrumePropertiesValidator.class);
+        validatorLogger.setLevel(Level.WARN);
+        validatorLogger.addAppender(appender);
+        return appender;
+    }
+
+    private static void detachAppender(ListAppender<ILoggingEvent> appender) {
+        Logger validatorLogger = (Logger) LoggerFactory.getLogger(BrumePropertiesValidator.class);
+        validatorLogger.detachAppender(appender);
+        appender.stop();
     }
 
     @Test
