@@ -3,6 +3,7 @@ package com.fungle.brume.command;
 import com.fungle.brume.audit.anonymity.AnonymityAuditSpec;
 import com.fungle.brume.audit.anonymity.AuditRunner;
 import com.fungle.brume.diag.DiagRunner;
+import com.fungle.brume.scan.ScanRunner;
 import com.fungle.brume.timeout.TimedReplicationRunner;
 import org.springframework.stereotype.Component;
 import picocli.CommandLine;
@@ -51,12 +52,14 @@ public class BrumeCommand implements Callable<Integer> {
     private final TimedReplicationRunner runner;
     private final DiagRunner diagRunner;
     private final AuditRunner auditRunner;
+    private final ScanRunner scanRunner;
 
     public BrumeCommand(TimedReplicationRunner runner, DiagRunner diagRunner,
-                        AuditRunner auditRunner) {
+                        AuditRunner auditRunner, ScanRunner scanRunner) {
         this.runner = runner;
         this.diagRunner = diagRunner;
         this.auditRunner = auditRunner;
+        this.scanRunner = scanRunner;
     }
 
     @CommandLine.Command(name = "execute", description = "Execute BRUME")
@@ -85,6 +88,17 @@ public class BrumeCommand implements Callable<Integer> {
         // Never invoked in practice — BrumeApplication.main intercepts `init` before Spring boot.
         // This stub exists only so `brume --help` lists the subcommand.
         return 0;
+    }
+
+    @CommandLine.Command(name = "scan",
+            description = "Analyze the source schema and generate a pre-filled brume.yml with "
+                    + "suggested anonymization rules for PII patterns and primary keys. "
+                    + "Prompts before overwriting an existing brume.yml (pass --force to skip the prompt).")
+    public Integer scan(
+            @CommandLine.Option(names = "--force",
+                    description = "Overwrite an existing brume.yml without prompting (useful in CI).",
+                    defaultValue = "false") boolean force) {
+        return scanRunner.run(force);
     }
 
     @CommandLine.Command(name = "diag",

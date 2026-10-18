@@ -38,7 +38,7 @@ public class BrumeApplication{
      * the tool, not to run a pipeline). See pre-boot short-circuit below.
      */
     static final Set<String> SUBCOMMANDS =
-            Set.of("execute", "plan", "dry-run", "diag", "audit", "init");
+            Set.of("execute", "plan", "dry-run", "diag", "audit", "init", "scan");
 
     public static void main(String[] args) {
         // Intercept --help / -h / --version / -V before Spring starts so the output
@@ -47,7 +47,7 @@ public class BrumeApplication{
         var argList = Arrays.asList(args);
         if (argList.contains("--help") || argList.contains("-h")
                 || argList.contains("--version") || argList.contains("-V")) {
-            System.exit(new CommandLine(new BrumeCommand(null, null, null)).execute(args));
+            System.exit(new CommandLine(new BrumeCommand(null, null, null, null)).execute(args));
         }
 
         // `init` runs standalone : no Spring context, no .env.brume, no DB (ADR-0045).
@@ -74,7 +74,7 @@ public class BrumeApplication{
         // short-circuit in that phase — the marker `spring.aot.processing=true` is
         // set by Spring's AbstractAotProcessor before it hands off to the app main.
         if (!hasKnownSubcommand(argList) && !isAotProcessingPhase()) {
-            System.exit(new CommandLine(new BrumeCommand(null, null, null)).execute(args));
+            System.exit(new CommandLine(new BrumeCommand(null, null, null, null)).execute(args));
         }
 
         // Friendly guard against the "I just cloned the repo and ran `brume plan`" trap.
@@ -379,7 +379,7 @@ public class BrumeApplication{
      */
     private static void applyReadOnlySinkOverride(String[] args) {
         var argList = Arrays.asList(args);
-        if (argList.contains("dry-run") || argList.contains("plan")) {
+        if (argList.contains("dry-run") || argList.contains("plan") || argList.contains("scan")) {
             System.setProperty("brume.sink.type", "NULL");
         }
     }

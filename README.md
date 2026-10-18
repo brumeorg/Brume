@@ -16,6 +16,7 @@
 - **Foreign key preservation** — IDs are encrypted consistently (`FPE_ID`, `FPE_UUID`): FK constraints remain valid on the target database, without having to disable integrity checks.
 - **Automatic FK parent and child traversal** — if you extract `orders`, Brume automatically traverses the referenced `users`, up to `fk_depth` levels.
 - **Declarative configuration** — a `brume.yml` file defines, per table and per column, the strategy to apply (`FAKE`, `HASH`, `MASK`, `NULLIFY`, `FPE_ID`, `FPE_UUID`, `KEEP`).
+- **Schema auto-scan** — `brume scan` introspects the source database and generates a pre-filled `brume.yml` with suggested rules for PII patterns (email, phone, address, IBAN, credentials…) and primary keys (`FPE_ID` / `FPE_UUID`).
 - **Cross-table consistency** — `linked_columns` guarantees that the same real value produces the same fake value across multiple tables without an FK link between them.
 - **JSONB columns** — `$.field.subfield` paths are pseudonymized individually.
 - **k-anonymity audit** — `brume audit --anonymity` subcommand to measure residual re-identification risk and produce a DPO report.
@@ -190,6 +191,7 @@ The `type` specifies the **semantics of the field** for the `FAKE` and `MASK` st
 brume init jdbc   # Bootstrap for JDBC sink (writes to a target DB)
 brume init dump   # Bootstrap for DUMP sink (writes a SQL file)
 brume init        # No subcommand → interactive prompt (JDBC fallback in non-TTY shells)
+brume scan        # Introspects the source schema and generates a pre-filled brume.yml
 brume plan        # Estimates volumes and detects uncovered PII columns (read-only)
 brume execute     # Runs the full pseudonymization
 brume dry-run     # Runs without writing (NullSink — for validating the config)
@@ -202,6 +204,30 @@ brume --help
 sink-specific `.env.brume` template into the current directory. Existing files are
 kept by default (prompt to overwrite). The dedicated `.env.brume` filename avoids
 collisions with Docker Compose or other tooling that reads `.env`. See ADR-0045.
+
+### `brume scan` — auto-generate `brume.yml` from the source schema
+
+Once `.env.brume` points to a reachable source database, `brume scan` reads the
+schema and emits a `brume.yml` pre-filled with suggested strategies:
+
+- **PII columns** (`email`, `phone`, `address`, `iban`, `password`, `token`, `ssn`,
+  birth dates, …) are mapped to the appropriate `FAKE` / `MASK` / `HASH` / `NULLIFY`
+  strategy with the matching semantic `type`.
+- **Primary keys** are promoted to `FPE_ID` (numeric) or `FPE_UUID` (uuid).
+- **Foreign keys** are intentionally left blank — they are resolved at run time
+  by FK strategy propagation (same strategy as the referenced PK).
+- The `extraction.tables` block is emitted as a TODO stub: filter choices
+  (temporal window, tenant scope) are business-driven and cannot be inferred
+  from the schema alone.
+
+If a `brume.yml` already exists, scan prompts before overwriting; pass `--force`
+in CI shells. The output is a **proposal** — review it before running `plan` or
+`execute`. The full pattern-to-strategy mapping is documented in ADR-0048.
+
+```bash
+brume scan           # Interactive — prompts before overwriting brume.yml
+brume scan --force   # CI mode — overwrites without prompting
+```
 
 Flags available on all subcommands:
 
