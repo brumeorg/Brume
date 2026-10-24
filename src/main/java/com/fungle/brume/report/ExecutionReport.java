@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Mutable, thread-safe collector accumulating statistics throughout a Brume pipeline run.
  *
  * <p>All public methods are safe for concurrent use from multiple threads (including
- * virtual threads spawned by {@code FkParentResolver}). Counters are backed by
+ * virtual threads that read FK parents in {@code FkTraversal}). Counters are backed by
  * {@link ConcurrentHashMap} and {@link AtomicLong} — no external synchronization required.
  *
  * <p>At the end of the pipeline, call {@link #toSummary(PhaseTimings)} to obtain an
@@ -25,6 +25,7 @@ public class ExecutionReport {
     private final ConcurrentHashMap<String, AtomicLong> fkChildren = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> inserted = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> conflicts = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> uniqueCollisions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> batchErrors = new ConcurrentHashMap<>();
 
     /**
@@ -50,6 +51,7 @@ public class ExecutionReport {
     private volatile DdlExecutionResult ddlExecution = DdlExecutionResult.empty();
     private volatile BrumeRuntimeContext runtimeContext = BrumeRuntimeContext.empty();
     private volatile PkStructureStats pkStructure = PkStructureStats.empty();
+    private volatile List<OrphanReference> orphanReferences = List.of();
     private final AtomicLong peakHeapUsedBytes = new AtomicLong(0L);
     private final AtomicLong maxHeapBytes = new AtomicLong(0L);
     private volatile boolean heapWarningTriggered = false;
@@ -78,8 +80,8 @@ public class ExecutionReport {
     }
 
     /**
-     * Records the number of FK parent rows added for a given parent table by
-     * {@code FkParentResolver}.
+     * Records the number of rows of {@code table} reached by climbing to a FK parent
+     * ({@code FkTraversal}, ADR-0050).
      *
      * @param table name of the parent table
      * @param count number of parent rows resolved
@@ -89,8 +91,8 @@ public class ExecutionReport {
     }
 
     /**
-     * Records the number of FK child rows added for a given child table by
-     * {@code FkChildResolver}.
+     * Records the number of rows of {@code table} reached by descending to a FK child
+     * ({@code FkTraversal}, ADR-0050).
      *
      * @param table name of the child table
      * @param count number of child rows resolved
@@ -100,15 +102,54 @@ public class ExecutionReport {
     }
 
     /**
+     * Records the FK references left dangling by {@code orphan_policy: ALLOW_ORPHANS} (ADR-0050).
+     *
+     * @param references one entry per FK whose references leave the {@code fk_depth} radius
+     */
+    public void recordOrphanReferences(List<OrphanReference> references) {
+        this.orphanReferences = List.copyOf(references);
+    }
+
+    /**
      * Records the result of one batch write for a given table.
      *
      * @param table     name of the table
      * @param insertedCount  number of rows actually inserted in the batch
      * @param conflictCount  number of rows ignored by {@code ON CONFLICT DO NOTHING}
+     *                       because their primary key was already in the target
      */
     public void recordInserted(String table, long insertedCount, long conflictCount) {
+        recordInserted(table, insertedCount, conflictCount, 0L);
+    }
+
+    /**
+     * Records the result of one batch write, including the rows lost to a {@code UNIQUE}
+     * collision of their pseudonymized values (#29a).
+     *
+     * @param table               name of the table
+     * @param insertedCount       number of rows actually inserted in the batch
+     * @param conflictCount       rows skipped because their primary key was already in the target
+     * @param uniqueCollisionCount rows not written : their value collided on a {@code UNIQUE} constraint
+     */
+    public void recordInserted(String table, long insertedCount, long conflictCount, long uniqueCollisionCount) {
         inserted.computeIfAbsent(table, k -> new AtomicLong(0)).addAndGet(insertedCount);
         conflicts.computeIfAbsent(table, k -> new AtomicLong(0)).addAndGet(conflictCount);
+        if (uniqueCollisionCount > 0) {
+            uniqueCollisions.computeIfAbsent(table, k -> new AtomicLong(0)).addAndGet(uniqueCollisionCount);
+        }
+    }
+
+    /**
+     * Records rows not written because their pseudonymized value collided on a {@code UNIQUE}
+     * key — dropped by the DUMP sink before reaching the file (#29b).
+     *
+     * @param table name of the table
+     * @param count number of rows dropped
+     */
+    public void recordUniqueCollisions(String table, long count) {
+        if (count > 0) {
+            uniqueCollisions.computeIfAbsent(table, k -> new AtomicLong(0)).addAndGet(count);
+        }
     }
 
     /**
@@ -224,6 +265,7 @@ public class ExecutionReport {
         allTables.addAll(fkChildren.keySet());
         allTables.addAll(inserted.keySet());
         allTables.addAll(conflicts.keySet());
+        allTables.addAll(uniqueCollisions.keySet());
         allTables.addAll(batchErrors.keySet());
 
         List<TableStats> stats = new ArrayList<>();
@@ -235,6 +277,7 @@ public class ExecutionReport {
                     getOrZero(fkChildren, table),
                     getOrZero(inserted, table),
                     getOrZero(conflicts, table),
+                    getOrZero(uniqueCollisions, table),
                     getOrZero(batchErrors, table)
             ));
         }
@@ -264,7 +307,8 @@ public class ExecutionReport {
                 ddlExecution,
                 runtimeContext,
                 pkStructure,
-                startedAt
+                startedAt,
+                orphanReferences
         );
     }
 

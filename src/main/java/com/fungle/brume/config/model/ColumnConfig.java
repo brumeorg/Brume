@@ -9,6 +9,10 @@ import java.util.List;
  * <ul>
  *   <li>{@link Strategy#FAKE} requires a non-null {@code type}</li>
  *   <li>{@code type = }{@link SemanticType#JSONB} requires a non-empty {@code jsonPaths} list</li>
+ *   <li>{@code minYear} / {@code maxYear} are only valid when
+ *       {@code strategy = FAKE} and {@code type = DATE}; both bounds must be in {@code [1900, 2100]}
+ *       and {@code minYear < maxYear}. Omit both to fall back to the adult-DOB default
+ *       anchor (1935-2008).</li>
  * </ul>
  *
  * @param name      column name as it appears in the database schema
@@ -18,11 +22,24 @@ import java.util.List;
  *                  {@link Strategy#FPE_ID})
  * @param jsonPaths ordered list of JSON path rules; only relevant when
  *                  {@code type == }{@link SemanticType#JSONB}
+ * @param minYear   inclusive lower year bound for {@link Strategy#FAKE} + {@link SemanticType#DATE};
+ *                  {@code null} = use the default (adult DOB anchor). Only read for FAKE+DATE.
+ * @param maxYear   exclusive upper year bound for {@link Strategy#FAKE} + {@link SemanticType#DATE};
+ *                  {@code null} = use the default (adult DOB anchor). Only read for FAKE+DATE.
  */
 public record ColumnConfig(
         String name,
         Strategy strategy,
         SemanticType type,
-        List<JsonPathConfig> jsonPaths) {
-}
+        List<JsonPathConfig> jsonPaths,
+        Integer minYear,
+        Integer maxYear) {
 
+    /**
+     * 4-arg compat ctor kept for the ~40 call sites written before {@code minYear}/{@code maxYear}
+     * were added (#45b). Defaults both bounds to {@code null} — identical to the pre-#45b behavior.
+     */
+    public ColumnConfig(String name, Strategy strategy, SemanticType type, List<JsonPathConfig> jsonPaths) {
+        this(name, strategy, type, jsonPaths, null, null);
+    }
+}

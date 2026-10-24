@@ -1,6 +1,7 @@
 package com.fungle.brume.schema.model;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Metadata for a single database table: its columns, outgoing foreign keys, and primary key.
@@ -23,15 +24,35 @@ import java.util.List;
  * @param columns           ordered list of column metadata as returned by {@code information_schema.columns}
  * @param foreignKeys       list of foreign keys declared on this table (outgoing edges in the FK graph)
  * @param primaryKeyColumns ordered primary-key column names (empty = no PK, size ≥ 2 = composite)
+ * @param uniqueColumns     columns that are unique on their own : single-column PK, UNIQUE
+ *                          constraint or unique index (#29a — fake values there must not collide)
+ * @param uniqueKeys        every unique index usable from the values, PK included, composite or
+ *                          not (#29b — the DUMP sink drops a row that would break one)
  */
 public record TableMetadata(
         String name,
         List<ColumnMetadata> columns,
         List<ForeignKey> foreignKeys,
-        List<String> primaryKeyColumns) {
+        List<String> primaryKeyColumns,
+        Set<String> uniqueColumns,
+        List<UniqueKey> uniqueKeys) {
 
     public TableMetadata {
         primaryKeyColumns = primaryKeyColumns == null ? List.of() : List.copyOf(primaryKeyColumns);
+        uniqueColumns = uniqueColumns == null ? Set.of() : Set.copyOf(uniqueColumns);
+        uniqueKeys = uniqueKeys == null ? List.of() : List.copyOf(uniqueKeys);
+    }
+
+    /** Compatibility constructor — no unique-key information (pre-#29b call sites). */
+    public TableMetadata(String name, List<ColumnMetadata> columns, List<ForeignKey> foreignKeys,
+                         List<String> primaryKeyColumns, Set<String> uniqueColumns) {
+        this(name, columns, foreignKeys, primaryKeyColumns, uniqueColumns, List.of());
+    }
+
+    /** Compatibility constructor — no unique-column information (pre-#29a call sites). */
+    public TableMetadata(String name, List<ColumnMetadata> columns,
+                         List<ForeignKey> foreignKeys, List<String> primaryKeyColumns) {
+        this(name, columns, foreignKeys, primaryKeyColumns, Set.of());
     }
 
     /**

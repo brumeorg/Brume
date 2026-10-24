@@ -1,0 +1,6 @@
+id	user_email	action	ip_address	payload	created_at
+432408993	adolph.hills.ef9d2f@quitzon.info	FAILED_LOGIN	192.0.*.*	{"user": {"email": "adolph.hills.ef9d2f@quitzon.info", "session": {"token": null}}, "metadata": {"source": "api"}}	2025-03-01 02:15:00
+1048729278	alpha.stiedemann.2da07b@hermann.name	LOGIN_SUCCESS	192.168.*.*	{"user": {"email": "alpha.stiedemann.2da07b@hermann.name", "session": {"token": "f4f3a6f201d3bfacad31918f21b116de44a0c10ddf3b447ce9a7a4b810e5b043"}}, "metadata": {"source": "web"}}	2025-01-05 09:10:00
+1488849060	yanira.west.48d3ff@rath.name	PAYMENT_VALIDATED	172.16.*.*	{"user": {"email": "yanira.west.48d3ff@rath.name", "session": {"token": "d216d2169bb7752a33d924882c8ab9b2d51426ac6051047e1753058ea9751803"}}, "metadata": {"source": "web"}}	2025-02-28 16:40:00
+1872066835	alpha.stiedemann.2da07b@hermann.name	LOGOUT	192.168.*.*	{"user": {"email": "alpha.stiedemann.2da07b@hermann.name", "session": {"token": "600abe2e256a8455ad79bebc9d13c773a11c02bcbf63736cd061afeb1f781249"}}, "metadata": {"source": "web"}}	2025-01-05 18:30:00
+2109446684	sima.rohan.edc919@crona.biz	ORDER_CREATED	10.0.*.*	{"user": {"email": "sima.rohan.edc919@crona.biz", "session": {"token": "67564c0bca61153e93be8d5afdfbded5099b41c6e9086f2ef9a5007a844016e4"}}, "metadata": {"source": "mobile"}}	2025-02-14 10:58:00

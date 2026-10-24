@@ -10,6 +10,7 @@ import com.fungle.brume.config.model.ColumnReference;
 import com.fungle.brume.config.model.ExtractionConfig;
 import com.fungle.brume.config.model.JsonPathConfig;
 import com.fungle.brume.config.model.LinkedColumnsConfig;
+import com.fungle.brume.config.model.OrphanPolicy;
 import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
@@ -62,7 +63,7 @@ public final class ConfigSchemaGenerator {
 
     private static final Map<Class<?>, String> TYPE_DESCRIPTIONS = Map.ofEntries(
             Map.entry(ExtractionConfig.class,
-                    "Which tables to read from the source database and how — FK propagation depth, batch sizes, and per-table filters."),
+                    "Which tables to read from the source database and how — FK radius, orphan policy, batch sizes, and per-table filters."),
             Map.entry(AnonymizationConfig.class,
                     "Cross-table column linkages and per-table, per-column anonymization rules."),
             Map.entry(TableExtractionConfig.class,
@@ -81,7 +82,12 @@ public final class ConfigSchemaGenerator {
                     "Anonymization strategy. FAKE = deterministic fake (requires type). "
                             + "MASK = partial masking. HASH = SHA-256 one-way. NULLIFY = null. "
                             + "KEEP = copy unchanged. FPE_ID = format-preserving for numeric IDs. "
-                            + "FPE_UUID = format-preserving for UUIDs."),
+                            + "FPE_UUID = format-preserving for UUIDs. "
+                            + "DATE_SHIFT = deterministic ±N-day shift of date/timestamp values."),
+            Map.entry(OrphanPolicy.class,
+                    "What to do with FK references leaving the fk_depth radius. KEEP_PARENTS (default) = "
+                            + "climb the parents of every copied row without depth limit, so no FK is left dangling. "
+                            + "ALLOW_ORPHANS = strict radius, dangling references are kept and reported."),
             Map.entry(SemanticType.class,
                     "Semantic type of a column value — drives fake data generation (FAKE) "
                             + "or masking pattern (MASK). JSONB requires a non-empty json_paths list.")
@@ -93,11 +99,12 @@ public final class ConfigSchemaGenerator {
                     Map.entry("anonymization", "Anonymization rules applied to extracted rows before they reach the target.")
             )),
             Map.entry(ExtractionConfig.class, Map.ofEntries(
-                    Map.entry("fkDepth", "Maximum FK parent levels to resolve automatically when a row's parent is missing from the extracted set. 1 = direct parents only. Default: 3."),
+                    Map.entry("fkDepth", "Maximum FK distance from the rows of the listed tables, counted in both directions (to parents and to children). 1 = direct parents and children only. Default: 3."),
+                    Map.entry("orphanPolicy", "What to do with FK references leaving the fk_depth radius: KEEP_PARENTS (default) or ALLOW_ORPHANS."),
                     Map.entry("fetchSize", "JDBC cursor fetch size used during streaming reads from the source. Default: 1000."),
                     Map.entry("batchSize", "Number of rows per INSERT batch on the target. Default: 1000."),
                     Map.entry("chunkSize", "Number of rows processed in memory per streaming chunk. Default: 10000."),
-                    Map.entry("tables", "Tables to extract. Each entry may carry an optional WHERE filter. Tables not listed are only extracted if they are FK parents of a listed table.")
+                    Map.entry("tables", "Tables to extract. Each entry may carry an optional WHERE filter. Tables not listed are extracted when their rows lie within fk_depth of the listed rows (or are parents of a copied row, under KEEP_PARENTS).")
             )),
             Map.entry(TableExtractionConfig.class, Map.ofEntries(
                     Map.entry("table", "Unqualified table name (the schema is configured separately via replication.schema in application.yaml)."),
@@ -123,7 +130,9 @@ public final class ConfigSchemaGenerator {
                     Map.entry("name", "Column name as it appears in the database schema."),
                     Map.entry("strategy", "Anonymization strategy to apply to this column."),
                     Map.entry("type", "Semantic type — required when strategy=FAKE, optional/ignored for HASH/NULLIFY/KEEP/FPE_ID/FPE_UUID. Use JSONB to anonymize specific paths inside a JSON column (see json_paths)."),
-                    Map.entry("jsonPaths", "Per-path anonymization rules for this column. Required when type=JSONB; ignored otherwise.")
+                    Map.entry("jsonPaths", "Per-path anonymization rules for this column. Required when type=JSONB; ignored otherwise."),
+                    Map.entry("minYear", "Lower bound (inclusive) of the year range for strategy=FAKE + type=DATE. Set together with max_year. Default: 1935."),
+                    Map.entry("maxYear", "Upper bound (exclusive) of the year range for strategy=FAKE + type=DATE. Set together with min_year. Default: 2008.")
             )),
             Map.entry(JsonPathConfig.class, Map.ofEntries(
                     Map.entry("path", "JSONPath expression starting with $ — e.g. \"$.user.email\" or \"$.metadata.session.token\"."),

@@ -23,7 +23,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *                               STRICT: fail-fast on first DDL error. LENIENT: log and continue.
  * @param poolSize               maximum HikariCP connection pool size for both source and target
  *                               DataSources (default: {@code 20})
- * @param fkDepth                maximum FK parent resolution depth for {@link com.fungle.brume.plan.PlanEstimator}
+ * @param fkDepth                unused since ADR-0050 — {@code extraction.fk_depth} of brume.yml drives
+ *                               both plan and execute ; kept so existing configurations still bind
  *                               (default: {@code 3})
  * @param source                 source database connection parameters
  * @param target                 target database connection parameters

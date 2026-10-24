@@ -55,7 +55,8 @@ public record BrumeProperties(
         @DefaultValue TimeoutsProperties timeouts,
         @DefaultValue AuditProperties audit,
         @DefaultValue PreflightProperties preflight,
-        @DefaultValue CheckpointProperties checkpoint
+        @DefaultValue CheckpointProperties checkpoint,
+        @DefaultValue DateShiftProperties dateShift
 ) {
 
     @ConstructorBinding
@@ -94,7 +95,41 @@ public record BrumeProperties(
                 + ", audit=" + audit
                 + ", preflight=" + preflight
                 + ", checkpoint=" + checkpoint
+                + ", dateShift=" + dateShift
                 + "]";
+    }
+
+    /**
+     * 19-arg overload kept for tests written before {@code dateShift} was added
+     * (#45a). Defaults {@code dateShift} to {@link DateShiftProperties#defaults()}.
+     */
+    public BrumeProperties(
+            String configPath,
+            String hmacSecret,
+            String fpeKey,
+            String hmacAlgorithm,
+            String fakerLocale,
+            double maxBatchErrorRate,
+            long maxTargetRows,
+            int heapWarningThresholdPercent,
+            PipelineMode pipelineMode,
+            SubstitutionDictProperties substitutionDict,
+            ReportProperties report,
+            SinkProperties sink,
+            PlanProperties plan,
+            boolean strictConfig,
+            OutputProperties output,
+            TimeoutsProperties timeouts,
+            AuditProperties audit,
+            PreflightProperties preflight,
+            CheckpointProperties checkpoint) {
+        this(
+                configPath, hmacSecret, fpeKey, hmacAlgorithm, fakerLocale,
+                maxBatchErrorRate, maxTargetRows, heapWarningThresholdPercent,
+                pipelineMode, substitutionDict, report, sink, plan, strictConfig,
+                output, timeouts, audit, preflight, checkpoint,
+                DateShiftProperties.defaults()
+        );
     }
 
     /**
@@ -125,7 +160,8 @@ public record BrumeProperties(
                 maxBatchErrorRate, maxTargetRows, heapWarningThresholdPercent,
                 pipelineMode, substitutionDict, report, sink, plan, strictConfig,
                 output, timeouts, audit, preflight,
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -157,7 +193,8 @@ public record BrumeProperties(
                 pipelineMode, substitutionDict, report, sink, plan, strictConfig,
                 output, timeouts, audit,
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -221,7 +258,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -252,7 +290,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -283,7 +322,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -319,7 +359,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -352,7 +393,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -386,7 +428,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -418,7 +461,8 @@ public record BrumeProperties(
                 TimeoutsProperties.defaults(),
                 AuditProperties.defaults(),
                 PreflightProperties.defaults(),
-                CheckpointProperties.defaults()
+                CheckpointProperties.defaults(),
+                DateShiftProperties.defaults()
         );
     }
 
@@ -718,6 +762,30 @@ public record BrumeProperties(
         /** Returns the production default (opt-in disabled, standard file name). */
         public static CheckpointProperties defaults() {
             return new CheckpointProperties(false, "brume-checkpoint.json");
+        }
+    }
+
+    /**
+     * DATE_SHIFT strategy configuration.
+     *
+     * @param maxDays magnitude cap of the signed day shift applied by
+     *                {@link com.fungle.brume.anonymization.strategies.DateShiftStrategy}.
+     *                Output date is in {@code [input - maxDays, input + maxDays]} with
+     *                an HMAC-seeded offset. {@code 0} would degrade to KEEP; must be &gt; 0.
+     *                Default {@code 30}.
+     */
+    public record DateShiftProperties(
+            @DefaultValue("30") int maxDays) {
+
+        public DateShiftProperties {
+            if (maxDays <= 0) {
+                throw new IllegalArgumentException(
+                        "brume.date-shift.max-days must be > 0, was " + maxDays);
+            }
+        }
+
+        public static DateShiftProperties defaults() {
+            return new DateShiftProperties(30);
         }
     }
 }

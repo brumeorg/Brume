@@ -1,0 +1,61 @@
+# edge-brume.yml — configuration of EdgeCasesE2E on schema e2e_edge (ADR-0051)
+#
+# Tiny fetch / batch / chunk sizes on purpose : 400 accounts go through ~60 chunk flushes.
+# Only the parent side of each FK is declared : FPE_UUID and FPE_ID must be propagated to
+# session.account_id, shipment.account_id and shipment.order_no (composite FK, position-wise).
+# Changing a strategy here changes the expected values : regenerate the golden dataset
+# (-De2e.updateGolden=true) and review the diff in the MR.
+
+extraction:
+  fk_depth: 1
+  orphan_policy: KEEP_PARENTS
+  fetch_size: 3
+  batch_size: 5
+  chunk_size: 7
+  tables:
+    - table: shipment
+      filter:
+    - table: Account
+      filter:
+
+anonymization:
+  tables:
+    - table: Account
+      columns:
+        - name: id
+          strategy: FPE_UUID
+        - name: user
+          strategy: HASH
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+
+    - table: session
+      columns:
+        - name: token
+          strategy: HASH
+
+    - table: order_line
+      columns:
+        - name: order_no
+          strategy: FPE_ID
+
+    # #26c : names written exactly as stored, accents and spaces included, no quotes
+    - table: fiche client
+      columns:
+        - name: prénom
+          strategy: FAKE
+          type: FIRST_NAME
+        - name: nom de famille
+          strategy: FAKE
+          type: LAST_NAME
+        - name: téléphone
+          strategy: MASK
+          type: PHONE
+
+    # #71c : rules on the partitioned table, never on its partitions
+    - table: login_event
+      columns:
+        - name: ip
+          strategy: MASK
+          type: IP_ADDRESS

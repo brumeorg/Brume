@@ -52,7 +52,15 @@ public enum Strategy {
      * derived from HMAC bytes — non-reversible without the secret.
      * FK columns pointing to an FPE_UUID primary key are automatically propagated.
      */
-    FPE_UUID("FPE appliqué à des UUID — préserve le format 8-4-4-4-12 et l'unicité.");
+    FPE_UUID("FPE appliqué à des UUID — préserve le format 8-4-4-4-12 et l'unicité."),
+
+    /**
+     * Deterministic date shift : adds a HMAC-seeded signed offset in days to a
+     * {@code date} / {@code timestamp} / {@code timestamptz} value. Preserves event
+     * ordering within the shift window and age cohorts to the day. Non-reversible
+     * without the secret. Shift magnitude configured by {@code brume.date-shift.max-days}.
+     */
+    DATE_SHIFT("Décalage déterministe en jours (±N) sur une date ou un timestamp — préserve cohortes et ordre des évènements.");
 
     private static final String UNKNOWN_DESCRIPTION = "Stratégie personnalisée";
 

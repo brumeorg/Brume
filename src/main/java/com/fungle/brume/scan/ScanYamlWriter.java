@@ -5,6 +5,10 @@ import com.fungle.brume.scan.ScanConfigBuilder.ScanResult;
 import com.fungle.brume.scan.ScanConfigBuilder.SuggestedColumn;
 import com.fungle.brume.scan.ScanConfigBuilder.SuggestedTable;
 
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
+
 /**
  * Renders a {@link ScanResult} as a {@code brume.yml} string, with inline provenance
  * comments ({@code # detected via pattern 'xxx'}) next to each generated rule.
@@ -12,8 +16,8 @@ import com.fungle.brume.scan.ScanConfigBuilder.SuggestedTable;
  * <p>Hand-rolled rather than driven by SnakeYAML : the writer is 90 % layout concerns
  * (comments, blank lines, section headers) that SnakeYAML's representer can only emit
  * through callbacks and overridden event classes — more code for less clarity. The
- * output is still valid YAML (two-space indent, strings are plain scalars, no reserved
- * characters emitted).
+ * output is still valid YAML : two-space indent, and table / column names go through
+ * {@link #yamlScalar} (any legal PostgreSQL name, #26c).
  *
  * <p>The {@code extraction} block is intentionally emitted as a TODO stub : extraction
  * is a business choice (which tables, which filters) that the schema alone cannot infer.
@@ -21,7 +25,37 @@ import com.fungle.brume.scan.ScanConfigBuilder.SuggestedTable;
  */
 public final class ScanYamlWriter {
 
+    /** Names written as plain scalars : letters (accents included), digits, underscores. */
+    private static final Pattern PLAIN = Pattern.compile("[\\p{L}_][\\p{L}\\p{N}_]*");
+
+    /** Plain scalars a YAML 1.1 parser would read as null or boolean instead of a string. */
+    private static final Set<String> KEYWORDS = Set.of("null", "true", "false", "yes", "no", "on", "off", "y", "n");
+
     private ScanYamlWriter() {
+    }
+
+    /**
+     * A table or column name as a YAML scalar (#26c) : plain when it is a simple identifier
+     * ({@code users}, {@code prénom}), double-quoted otherwise — spaces, {@code :} {@code #}
+     * {@code "}, YAML keywords such as {@code null} or {@code on} and control characters all
+     * read back as the exact name.
+     */
+    static String yamlScalar(String name) {
+        if (PLAIN.matcher(name).matches() && !KEYWORDS.contains(name.toLowerCase(Locale.ROOT))) {
+            return name;
+        }
+        StringBuilder sb = new StringBuilder(name.length() + 2).append('"');
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append(c);
+            } else if (c < 0x20 || c == 0x7F) {
+                sb.append(String.format("\\x%02x", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
     }
 
     /**
@@ -51,7 +85,9 @@ public final class ScanYamlWriter {
 
     private static void writeExtractionStub(StringBuilder sb, ScanResult result) {
         sb.append("extraction:\n");
-        sb.append("  fk_depth: 3\n");
+        sb.append("  # fk_depth : FK radius around the listed rows, both directions — start small (ADR-0050).\n");
+        sb.append("  fk_depth: 1\n");
+        sb.append("  orphan_policy: KEEP_PARENTS\n");
         sb.append("  fetch_size: 1000\n");
         sb.append("  batch_size: 500\n");
         sb.append("  chunk_size: 10000\n");
@@ -64,7 +100,7 @@ public final class ScanYamlWriter {
         }
         sb.append("    # TODO: review this list and add filters where appropriate.\n");
         for (SuggestedTable table : result.tables()) {
-            sb.append("    - table: ").append(table.tableName()).append('\n');
+            sb.append("    - table: ").append(yamlScalar(table.tableName())).append('\n');
             sb.append("      filter:\n");
         }
     }
@@ -84,7 +120,7 @@ public final class ScanYamlWriter {
     }
 
     private static void writeTable(StringBuilder sb, SuggestedTable table) {
-        sb.append("    - table: ").append(table.tableName()).append('\n');
+        sb.append("    - table: ").append(yamlScalar(table.tableName())).append('\n');
         sb.append("      columns:\n");
         for (SuggestedColumn col : table.columns()) {
             writeColumn(sb, col);
@@ -93,7 +129,7 @@ public final class ScanYamlWriter {
 
     private static void writeColumn(StringBuilder sb, SuggestedColumn col) {
         Suggestion s = col.suggestion();
-        sb.append("        - name: ").append(col.columnName())
+        sb.append("        - name: ").append(yamlScalar(col.columnName()))
                 .append("        # detected via ").append(s.matchedPattern()).append('\n');
         sb.append("          strategy: ").append(s.strategy().name()).append('\n');
         if (s.semanticType() != null) {

@@ -8,7 +8,8 @@ import java.util.List;
  * <p>Controls how data is read from the source database:
  * <ul>
  *   <li>Which tables to extract and with which optional filters</li>
- *   <li>How deep to follow FK parent chains ({@code fkDepth})</li>
+ *   <li>How far to walk the FK graph around the seed rows ({@code fkDepth}), and what to do
+ *       with references leaving that radius ({@code orphanPolicy}) — ADR-0050</li>
  *   <li>The JDBC fetch size used during cursor reads ({@code fetchSize})</li>
  *   <li>The INSERT batch size used during target writes ({@code batchSize})</li>
  * </ul>
@@ -17,14 +18,17 @@ import java.util.List;
  * the YAML file (i.e. deserialized as {@code 0} or {@code null}):
  * <ul>
  *   <li>{@code fkDepth} → 3</li>
+ *   <li>{@code orphanPolicy} → {@link OrphanPolicy#KEEP_PARENTS}</li>
  *   <li>{@code fetchSize} → 1000</li>
  *   <li>{@code batchSize} → 1000</li>
  *   <li>{@code chunkSize} → 10000</li>
  *   <li>{@code tables} → empty list</li>
  * </ul>
  *
- * @param fkDepth   maximum number of FK parent levels to resolve automatically;
- *                  defaults to 3 when unset
+ * @param fkDepth   maximum FK distance from a seed row, in both directions (parents and
+ *                  children); defaults to 3 when unset
+ * @param orphanPolicy what to do with references leaving the {@code fkDepth} radius;
+ *                  defaults to {@link OrphanPolicy#KEEP_PARENTS} when unset
  * @param fetchSize JDBC cursor fetch size for streaming reads; defaults to 1000 when unset
  * @param batchSize INSERT batch size on the target; defaults to 1000 when unset
  * @param chunkSize number of rows processed per streaming chunk; defaults to 10000 when unset
@@ -32,6 +36,7 @@ import java.util.List;
  *                  must not be empty (enforced by {@link com.fungle.brume.config.ConfigValidator})
  */
 public record ExtractionConfig(int fkDepth,
+                               OrphanPolicy orphanPolicy,
                                int fetchSize,
                                int batchSize,
                                int chunkSize,
@@ -45,9 +50,15 @@ public record ExtractionConfig(int fkDepth,
         this(fkDepth, 1_000, batchSize, chunkSize, tables);
     }
 
+    public ExtractionConfig(int fkDepth, int fetchSize, int batchSize, int chunkSize,
+                            List<TableExtractionConfig> tables) {
+        this(fkDepth, null, fetchSize, batchSize, chunkSize, tables);
+    }
+
     /** Applies default values when fields are absent (0 / null) in the YAML file. */
     public ExtractionConfig {
         fkDepth = (fkDepth == 0) ? 3 : fkDepth;
+        orphanPolicy = (orphanPolicy == null) ? OrphanPolicy.KEEP_PARENTS : orphanPolicy;
         fetchSize = (fetchSize == 0) ? 1_000 : fetchSize;
         batchSize = (batchSize == 0) ? 1000 : batchSize;
         chunkSize = (chunkSize == 0) ? 10_000 : chunkSize;

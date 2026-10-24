@@ -1,22 +1,30 @@
 # brume.yml — Brume pseudonymization configuration
 
 extraction:
-  fk_depth: 3       # Resolve up to 3 FK parent and child levels
+  # fk_depth: radius around the rows of the tables below, counted in FK hops in both
+  # directions -- 1 = their FK parents and children, 2 = also the other children of
+  # those parents, and so on. Keep it small on a real database: each hop can pull many rows.
+  fk_depth: 1
+  # orphan_policy: KEEP_PARENTS (default) also copies the parents of every copied row,
+  # whatever their distance, so the target never holds a dangling FK. ALLOW_ORPHANS keeps
+  # the radius strict and reports the dangling references at the end of the run.
+  orphan_policy: KEEP_PARENTS
   fetch_size: 1000
   batch_size: 500
   chunk_size: 10000
   tables:
-    # Partial extraction: only 2025 orders are extracted
-    # FkParentResolver will resolve: users, managers of users, products
+    # Partial extraction: only 2025 orders are extracted.
+    # fk_depth 1 brings their users and their order_items; KEEP_PARENTS then adds the
+    # managers of those users and the products of those items.
     - table: orders
       filter: "created_at >= '2025-01-01' AND total_amount > 0"
 
-    # order_items from extracted orders only (implicit FK filter)
-    - table: order_items
-      filter:
-
     # audit_logs: all rows (no filter) -- email link via linked_columns
     - table: audit_logs
+      filter:
+
+    # students: pediatric data -- illustrates FAKE+DATE with a child year range
+    - table: students
       filter:
 
 anonymization:
@@ -87,6 +95,18 @@ anonymization:
 
         - name: manager_id
           strategy: NULLIFY
+
+        # Adult DOB -- FAKE+DATE draws a deterministic date in the default anchor
+        # (1935-2008 ⇒ 18-91 years old on 2026 scans). No bounds needed.
+        - name: birthday
+          strategy: FAKE
+          type: DATE
+
+        # Event date -- DATE_SHIFT perturbs by a signed day offset in [-N, +N]
+        # where N = brume.date-shift.max-days (default 30, override via
+        # BRUME_DATE_SHIFT_MAX_DAYS). Preserves age cohorts and event ordering.
+        - name: last_login_at
+          strategy: DATE_SHIFT
 
     # -----------------------------------------------------------------------
     # products -- HASH name, KEEP description, MASK ip_address, FPE_ID id
@@ -179,4 +199,37 @@ anonymization:
             - path: "$.metadata.source"
               type: IP_ADDRESS
               strategy: MASK
+
+    # -----------------------------------------------------------------------
+    # students -- child DOB with explicit min_year/max_year override
+    # -----------------------------------------------------------------------
+    # The adult-DOB default (1935-2008) would turn a 10-year-old into a 60-year-old
+    # and break every downstream age check. For datasets that contain minors
+    # (pediatric apps, school directories, youth services), override the year
+    # range per column. Both bounds must be set together, both in [1900, 2100],
+    # and min_year < max_year. Only read for strategy: FAKE + type: DATE.
+    - table: students
+      columns:
+        - name: id
+          strategy: FPE_ID
+
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+
+        # Child DOB -- 2008-2026 ⇒ 0-18 years old on 2026 scans.
+        - name: date_of_birth
+          strategy: FAKE
+          type: DATE
+          min_year: 2008      # inclusive
+          max_year: 2026      # exclusive
+
+        # Enrollment date -- DATE_SHIFT keeps the academic year/term intact
+        # (±30 days by default is small enough to stay inside the same term).
+        - name: enrolled_at
+          strategy: DATE_SHIFT
 

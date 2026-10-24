@@ -7,6 +7,7 @@ import com.fungle.brume.error.ConnectionException;
 import com.fungle.brume.error.BrumeErrorCode;
 import com.fungle.brume.error.SchemaException;
 import com.fungle.brume.writer.SinkType;
+import com.fungle.brume.util.SqlIdentifiers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -342,7 +343,8 @@ public class PreflightCheckRunner {
                         throw new ConfigurationException(
                                 BrumeErrorCode.PREFLIGHT_NO_USAGE_ON_SOURCE,
                                 "Source role lacks USAGE on schema '" + schema + "'.",
-                                "GRANT USAGE ON SCHEMA " + schema + " TO " + src.username() + ";");
+                                "GRANT USAGE ON SCHEMA " + SqlIdentifiers.quote(schema)
+                                        + " TO " + SqlIdentifiers.quote(src.username()) + ";");
                     }
                 }
             }
@@ -410,8 +412,10 @@ public class PreflightCheckRunner {
                                             + "' is not a member of the owner ('" + owner
                                             + "') of existing schema '" + schema
                                             + "'. DROP SCHEMA CASCADE would fail at runtime.",
-                                    "ALTER SCHEMA " + schema + " OWNER TO " + tgt.username()
-                                            + "; or GRANT " + owner + " TO " + tgt.username() + ";");
+                                    "ALTER SCHEMA " + SqlIdentifiers.quote(schema) + " OWNER TO "
+                                            + SqlIdentifiers.quote(tgt.username()) + "; or GRANT "
+                                            + SqlIdentifiers.quote(owner) + " TO "
+                                            + SqlIdentifiers.quote(tgt.username()) + ";");
                         }
                     }
                 }

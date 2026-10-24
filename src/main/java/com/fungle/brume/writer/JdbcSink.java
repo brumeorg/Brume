@@ -3,6 +3,7 @@ package com.fungle.brume.writer;
 import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.extraction.model.ExtractedRow;
 import com.fungle.brume.report.ExecutionReport;
+import com.fungle.brume.schema.model.TableMetadata;
 import com.fungle.brume.util.SqlIdentifiers;
 import org.postgresql.PGConnection;
 import org.postgresql.copy.CopyManager;
@@ -17,6 +18,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
 import java.io.StringReader;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
@@ -42,6 +45,11 @@ import java.util.stream.Gatherers;
  *
  * <p>Each batch runs in its own transaction with {@code session_replication_role = 'replica'}
  * so that FK constraints are not enforced on the target during the bulk load.
+ *
+ * <p>A row skipped by {@code ON CONFLICT DO NOTHING} is either already in the target (same
+ * primary key : re-run, resume — counted as a conflict) or <b>lost</b> : its pseudonymized
+ * value collided with another row on a {@code UNIQUE} constraint. Lost rows do not stop the
+ * run ; they are counted apart, logged at WARN and shown in the execution report (#29a).
  *
  * <p>Batch errors are caught and logged at WARN level — the sink continues with the
  * next batch rather than aborting the entire chunk. After each chunk, the observed
@@ -101,6 +109,7 @@ public class JdbcSink implements Sink {
 
         AtomicLong totalInserted = new AtomicLong(0);
         AtomicLong totalConflicts = new AtomicLong(0);
+        AtomicLong totalUniqueCollisions = new AtomicLong(0);
         AtomicLong totalBatchErrors = new AtomicLong(0);
 
         int batchIndex = 0;
@@ -110,7 +119,8 @@ public class JdbcSink implements Sink {
                 BatchResult result = writeBatch(schemaName, table, columns, batch);
                 totalInserted.addAndGet(result.inserted());
                 totalConflicts.addAndGet(result.conflicts());
-                report.recordInserted(table, result.inserted(), result.conflicts());
+                totalUniqueCollisions.addAndGet(result.uniqueCollisions());
+                report.recordInserted(table, result.inserted(), result.conflicts(), result.uniqueCollisions());
                 log.debug("JdbcSink: batch {} committed ({} rows) for {}.{}",
                         currentBatchIndex, batch.size(), schemaName, table);
             } catch (DataAccessException e) {
@@ -128,6 +138,11 @@ public class JdbcSink implements Sink {
         log.info("JdbcSink: {}.{} — {} inserted, {} conflicts, {} batch error(s)",
                 schemaName, table,
                 totalInserted.get(), totalConflicts.get(), totalBatchErrors.get());
+        if (totalUniqueCollisions.get() > 0) {
+            log.warn("[UNIQUE_COLLISION] {}.{} : {} ligne(s) non écrite(s) — leur valeur pseudonymisée "
+                    + "entre en collision avec une autre ligne sur une contrainte UNIQUE",
+                    schemaName, table, totalUniqueCollisions.get());
+        }
 
         long batchCount = batches.size();
         long errorCount = totalBatchErrors.get();
@@ -187,39 +202,83 @@ public class JdbcSink implements Sink {
         String sql = "INSERT INTO " + SqlIdentifiers.quoteQualified(schemaName, table)
                 + " (" + columnList + ") VALUES (" + placeholderList + ") ON CONFLICT DO NOTHING";
 
-        int[][][] resultHolder = new int[1][][];
+        BatchResult[] resultHolder = new BatchResult[1];
         transactionTemplate.executeWithoutResult(_ -> {
             jdbcTemplate.execute("SET session_replication_role = 'replica'");
-            resultHolder[0] = jdbcTemplate.batchUpdate(sql, batch, batch.size(), (ps, row) -> {
-                int paramIndex = 1;
-                for (String col : columns) {
-                    Object value = row.data().get(col);
-                    if (value instanceof String s) {
-                        // Use Types.OTHER so PostgreSQL infers the target column type
-                        // (required for JSONB columns where the anonymized value is a String).
-                        ps.setObject(paramIndex++, s, Types.OTHER);
-                    } else {
-                        ps.setObject(paramIndex++, value);
-                    }
-                }
-            });
-        });
+            int[][] result = jdbcTemplate.batchUpdate(sql, batch, batch.size(),
+                    (ps, row) -> bind(ps, 1, columns, row));
 
-        long inserted = 0;
-        long conflicts = 0;
-        int[][] result = resultHolder[0];
-        if (result != null) {
+            long inserted = 0;
+            List<ExtractedRow> skipped = new ArrayList<>();
+            int rowIndex = 0;
             for (int[] subBatch : result) {
                 for (int v : subBatch) {
                     if (v >= 1 || v == Statement.SUCCESS_NO_INFO) {
                         inserted++;
                     } else if (v == 0) {
-                        conflicts++;
+                        skipped.add(batch.get(rowIndex));
+                    }
+                    rowIndex++;
+                }
+            }
+            long alreadyPresent = countAlreadyPresent(schemaName, table, skipped);
+            resultHolder[0] = new BatchResult(inserted, alreadyPresent, skipped.size() - alreadyPresent);
+        });
+        return resultHolder[0];
+    }
+
+    /**
+     * Among the rows skipped by {@code ON CONFLICT DO NOTHING}, counts those whose primary key
+     * is in the target : a re-run or a resume, the row is there. The others collided on another
+     * {@code UNIQUE} constraint and are lost (#29a). Without schema metadata the skipped rows
+     * cannot be told apart and all count as already present (pre-#29a accounting) ; a table
+     * without primary key can only skip on a {@code UNIQUE} constraint.
+     */
+    private long countAlreadyPresent(String schemaName, String table, List<ExtractedRow> skipped) {
+        if (skipped.isEmpty()) {
+            return 0;
+        }
+        TableMetadata meta = context.schema() == null ? null : context.schema().get(table);
+        if (meta == null) {
+            return skipped.size();
+        }
+        List<String> pk = meta.primaryKeyColumns();
+        if (pk.isEmpty()) {
+            return 0;
+        }
+        String sql = "SELECT 1 FROM " + SqlIdentifiers.quoteQualified(schemaName, table) + " WHERE "
+                + pk.stream().map(c -> SqlIdentifiers.quote(c) + " = ?")
+                        .collect(java.util.stream.Collectors.joining(" AND "));
+        Long present = jdbcTemplate.execute((java.sql.Connection conn) -> {
+            long count = 0;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (ExtractedRow row : skipped) {
+                    bind(ps, 1, pk, row);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            count++;
+                        }
                     }
                 }
             }
+            return count;
+        });
+        return present == null ? 0 : present;
+    }
+
+    private static void bind(PreparedStatement ps, int firstIndex, List<String> columns, ExtractedRow row)
+            throws SQLException {
+        int paramIndex = firstIndex;
+        for (String col : columns) {
+            Object value = row.data().get(col);
+            if (value instanceof String s) {
+                // Use Types.OTHER so PostgreSQL infers the target column type
+                // (required for JSONB columns where the anonymized value is a String).
+                ps.setObject(paramIndex++, s, Types.OTHER);
+            } else {
+                ps.setObject(paramIndex++, value);
+            }
         }
-        return new BatchResult(inserted, conflicts);
     }
 
     // -------------------------------------------------------------------------
@@ -264,9 +323,9 @@ public class JdbcSink implements Sink {
         }));
 
         long copiedRows = copied == null ? 0L : copied;
-        return new BatchResult(copiedRows, 0L);
+        return new BatchResult(copiedRows, 0L, 0L);
     }
 
     /** Outcome of a single batch write. */
-    private record BatchResult(long inserted, long conflicts) {}
+    private record BatchResult(long inserted, long conflicts, long uniqueCollisions) {}
 }

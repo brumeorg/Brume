@@ -6,9 +6,11 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -172,11 +174,20 @@ class TsvEscapeTest {
         }
 
         @Test
-        @DisplayName("java.sql.Timestamp is rendered via toString (ISO-like)")
-        void timestampValue() {
-            Timestamp ts = Timestamp.valueOf("2025-01-01 12:34:56");
-            TsvEscape.escape(out, ts);
-            assertThat(out.toString()).isEqualTo(ts.toString());
+        @DisplayName("#5c — java.sql.Timestamp carries its UTC offset : psql restores the same instant "
+                + "whatever its session time zone (was the JVM wall-clock time, 1 h off from Paris to UTC)")
+        void timestampValueCarriesItsOffset() {
+            TimeZone jvmZone = TimeZone.getDefault();
+            try {
+                TimeZone.setDefault(TimeZone.getTimeZone("Europe/Paris"));
+                TsvEscape.escape(out, Timestamp.from(Instant.parse("2025-01-01T09:00:00Z")));
+                out.append(' ');
+                TsvEscape.escape(out, Timestamp.from(Instant.parse("2025-07-01T09:00:00.123456Z")));
+            } finally {
+                TimeZone.setDefault(jvmZone);
+            }
+            assertThat(out.toString())
+                    .isEqualTo("2025-01-01 10:00:00.000000+01:00 2025-07-01 11:00:00.123456+02:00");
         }
     }
 

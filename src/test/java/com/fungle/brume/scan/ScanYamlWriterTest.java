@@ -5,6 +5,7 @@ import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.schema.model.ColumnMetadata;
 import com.fungle.brume.schema.model.DatabaseSchema;
 import com.fungle.brume.schema.model.TableMetadata;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
@@ -78,6 +79,22 @@ class ScanYamlWriterTest {
         assertThat(yaml)
                 .contains("strategy: " + Strategy.HASH.name())
                 .doesNotContain("          type:");
+    }
+
+    @Test
+    @DisplayName("#26c — any legal PostgreSQL name reads back exactly from the generated YAML")
+    void namesSurviveTheYamlRoundTrip() {
+        List<String> names = List.of("users", "prénom", "Account", "nom de famille", "zip code",
+                "a: b", "#tag", "- dash", "it's", "say \"hi\"", "back\\slash", "null", "On", "yes",
+                "123", "line\nbreak", "tab\there", "😀");
+
+        assertThat(ScanYamlWriter.yamlScalar("prénom")).isEqualTo("prénom");
+        assertThat(ScanYamlWriter.yamlScalar("nom de famille")).isEqualTo("\"nom de famille\"");
+        for (String name : names) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> doc = (Map<String, Object>) new Yaml().load("name: " + ScanYamlWriter.yamlScalar(name) + "\n");
+            assertThat(doc.get("name")).as(name).isEqualTo(name);
+        }
     }
 
     private static DatabaseSchema singleTable(String name, List<ColumnMetadata> columns, String pk) {

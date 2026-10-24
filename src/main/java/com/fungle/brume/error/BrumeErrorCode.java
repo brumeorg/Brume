@@ -68,6 +68,13 @@ public enum BrumeErrorCode {
     /** A column with type {@code JSONB} is missing the required {@code json_paths} list. */
     CONFIG_JSONB_REQUIRES_JSON_PATHS,
 
+    /**
+     * A column declares {@code min_year} / {@code max_year} outside the valid context : these
+     * bounds are only read when {@code strategy = FAKE} and {@code type = DATE} (#45b), or the
+     * declared bounds are inconsistent ({@code min >= max}, outside {@code [1900, 2100]}).
+     */
+    CONFIG_DATE_RANGE_INVALID,
+
     /** {@code brume.sink.type=DUMP} but {@code brume.sink.output-path} is unset or blank. */
     CONFIG_SINK_OUTPUT_PATH_MISSING,
 
@@ -109,6 +116,12 @@ public enum BrumeErrorCode {
 
     /** Schema-aware validation: type/strategy combination is incompatible and {@code --strict-config} is on. */
     CONFIG_SCHEMA_TYPE_STRATEGY_INCOMPATIBLE,
+
+    /** Schema-aware validation: {@code NULLIFY} is declared on a column that is {@code NOT NULL} in the source schema (#21d). */
+    CONFIG_SCHEMA_NULLIFY_NOT_NULL,
+
+    /** Schema-aware validation: a strategy that maps distinct values to the same output is declared on a UNIQUE column (#29a). */
+    CONFIG_SCHEMA_UNIQUE_NOT_INJECTIVE,
 
     /** Preflight (#19/A13): {@code pg_dump} executable could not be invoked (not on PATH, not executable, version subprocess failed). */
     PREFLIGHT_PG_DUMP_NOT_FOUND,

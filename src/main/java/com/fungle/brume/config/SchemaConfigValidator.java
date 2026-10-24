@@ -33,7 +33,8 @@ import java.util.Optional;
  * <ul>
  *   <li><strong>Hard errors</strong> (always thrown): a table or column is referenced in
  *       the config but absent from the schema. These are typos / drift. The error message
- *       includes a Levenshtein-based "did you mean…" suggestion when one exists.</li>
+ *       includes a Levenshtein-based "did you mean…" suggestion when one exists. Also
+ *       {@code NULLIFY} on a {@code NOT NULL} column, which every write would reject (#21d).</li>
  *   <li><strong>Type/strategy mismatches</strong>: a column's PostgreSQL type is a poor
  *       fit for the chosen strategy (e.g. {@code FAKE EMAIL} on a {@code bigint} column).
  *       Logged as WARN by default; promoted to {@link ConfigurationException} when
@@ -105,9 +106,46 @@ public class SchemaConfigValidator {
                                     : didYouMean.trim() + " Otherwise, remove the entry or pick a "
                                             + "column that exists in the source schema.");
                 }
+                requireNullableForNullify(table.table(), colMeta, col);
+                requireInjectiveOnUnique(table.table(), meta, col);
                 checkTypeStrategyFit(table.table(), colMeta, col, strict);
             }
         }
+    }
+
+    /**
+     * {@code NULLIFY} writes {@code NULL} : on a {@code NOT NULL} column every row of the table
+     * is rejected at write time, once the target schema has already been rebuilt. Refused here
+     * so that {@code brume plan} reports it before anything is written (#21d).
+     */
+    private void requireNullableForNullify(String tableName, ColumnMetadata colMeta, ColumnConfig col) {
+        if (col.strategy() != Strategy.NULLIFY || colMeta.nullable()) return;
+        throw new ConfigurationException(
+                BrumeErrorCode.CONFIG_SCHEMA_NULLIFY_NOT_NULL,
+                "Column '" + tableName + "." + col.name() + "' uses strategy NULLIFY but is NOT NULL "
+                        + "in the source schema — every row would be rejected at write time.",
+                "Pick a strategy that keeps a value (FPE_ID / FPE_UUID / HASH for a key, FAKE / MASK "
+                        + "for a value). For a foreign key, remove the rule : the column then "
+                        + "inherits the strategy of the column it references.");
+    }
+
+    /**
+     * On a column unique in the source schema, distinct values must stay distinct (#29a) :
+     * MASK collapses them onto one masked form, and a FAKE DATE cannot carry the uniqueness
+     * suffix that FIRST_NAME / LAST_NAME / ADDRESS get. Either would make the target reject rows.
+     */
+    private void requireInjectiveOnUnique(String tableName, TableMetadata meta, ColumnConfig col) {
+        if (!meta.uniqueColumns().contains(col.name())) return;
+        boolean collapses = col.strategy() == Strategy.MASK
+                || (col.strategy() == Strategy.FAKE && col.type() == SemanticType.DATE);
+        if (!collapses) return;
+        throw new ConfigurationException(
+                BrumeErrorCode.CONFIG_SCHEMA_UNIQUE_NOT_INJECTIVE,
+                "Column '" + tableName + "." + col.name() + "' is UNIQUE in the source schema but "
+                        + col.strategy() + (col.type() != null ? " " + col.type() : "")
+                        + " can give the same output for different values — the target would reject them.",
+                "Use HASH (one output per value), FPE_ID / FPE_UUID for identifiers, or KEEP. "
+                        + "FAKE FIRST_NAME / LAST_NAME / ADDRESS are made unique automatically on such columns.");
     }
 
     // -------------------------------------------------------------------------
@@ -209,6 +247,14 @@ public class SchemaConfigValidator {
                 if (col.type() == SemanticType.JSONB) {
                     yield (family == TypeFamily.JSON) ? Verdict.OK : Verdict.INCOMPATIBLE;
                 }
+                if (col.type() == SemanticType.DATE) {
+                    // FAKE(DATE) returns an ISO date string → OK on temporal and string columns ;
+                    // other families would reject the value at write time.
+                    yield switch (family) {
+                        case TEMPORAL, STRING -> Verdict.OK;
+                        default               -> Verdict.INCOMPATIBLE;
+                    };
+                }
                 yield switch (family) {
                     case STRING -> Verdict.OK;
                     default     -> Verdict.INCOMPATIBLE;
@@ -218,6 +264,11 @@ public class SchemaConfigValidator {
                 case STRING  -> Verdict.OK;
                 case NUMERIC -> Verdict.SUSPECT;
                 default      -> Verdict.INCOMPATIBLE;
+            };
+            case DATE_SHIFT -> switch (family) {
+                case TEMPORAL -> Verdict.OK;
+                case STRING   -> Verdict.SUSPECT;  // ISO string in a text column — works but unusual
+                default       -> Verdict.INCOMPATIBLE;
             };
             case NULLIFY, KEEP -> Verdict.OK;
         };

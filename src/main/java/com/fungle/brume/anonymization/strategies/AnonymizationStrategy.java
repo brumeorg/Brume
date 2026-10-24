@@ -20,7 +20,7 @@ import com.fungle.brume.config.model.SemanticType;
  * </ul>
  */
 public sealed interface AnonymizationStrategy
-        permits FakeStrategy, FpeIdStrategy, FpeUuidStrategy, MaskStrategy, HashStrategy, NullifyStrategy, KeepStrategy {
+        permits FakeStrategy, FpeIdStrategy, FpeUuidStrategy, MaskStrategy, HashStrategy, NullifyStrategy, KeepStrategy, DateShiftStrategy {
 
     /**
      * Anonymizes the given value according to this strategy.

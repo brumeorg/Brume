@@ -22,14 +22,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * #30 (A9) — V1.0 determinism contract.
+ * #30 (A9) — determinism contract, V2.0 since ADR-0056 (FAKE PHONE redrawn, V1.0 → V2.0).
  *
  * <p>For a fixed (HMAC secret + algorithm + locale + FPE key + input), each of the 7
  * anonymization strategies must produce the same output across JVM runs, code refactors,
  * Datafaker upgrades and CI agents. Fixtures live in {@code
- * src/test/resources/determinism-fixtures-v1.0.json} and are versioned alongside the code.
+ * src/test/resources/determinism-fixtures-v2.0.json} and are versioned alongside the code.
  *
- * <p><strong>Modifying an "expected" value is a breaking change for V1.x</strong> —
+ * <p><strong>Modifying an "expected" value is a breaking change for V2.x</strong> —
  * requires a MAJOR SemVer bump per ticket #34 (E1). Bumping {@code net.datafaker:datafaker}
  * (currently 2.4.0 in {@code pom.xml}) is equally breaking: its internal name/email
  * dictionaries are part of the deterministic output contract for {@link FakeStrategy}.
@@ -41,14 +41,14 @@ import static org.junit.jupiter.api.Assertions.fail;
 class DeterminismRegressionTest {
 
     private static final Path FIXTURES_PATH =
-            Paths.get("src/test/resources/determinism-fixtures-v1.0.json");
+            Paths.get("src/test/resources/determinism-fixtures-v2.0.json");
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
 
     @Test
-    @DisplayName("V1.0 fixtures: each (strategy, type, input) produces the figé output — no drift allowed without intentional regen")
-    void v1FixturesMatchCurrentImplementation() throws Exception {
+    @DisplayName("V2.0 fixtures: each (strategy, type, input) produces the figé output — no drift allowed without intentional regen")
+    void fixturesMatchCurrentImplementation() throws Exception {
         boolean regen = isRegenRequested();
 
         JsonNode root = MAPPER.readTree(Files.readAllBytes(FIXTURES_PATH));
@@ -110,8 +110,8 @@ class DeterminismRegressionTest {
         }
 
         assertThat(failures)
-                .as("All V1.0 fixtures must match. A divergence here means a strategy "
-                  + "changed its output — that is a breaking change for V1.x and requires "
+                .as("All V2.0 fixtures must match. A divergence here means a strategy "
+                  + "changed its output — that is a breaking change for V2.x and requires "
                   + "a MAJOR SemVer bump + intentional regen via REGEN_DETERMINISM_FIXTURES=1.")
                 .isEmpty();
     }

@@ -1,5 +1,7 @@
 extraction:
-  fk_depth: 3
+  # Radius 1 (ADR-0050) : the declared rows and their parents — the subset these
+  # tests assert. A larger radius would also descend from those parents.
+  fk_depth: 1
   fetch_size: 500
   batch_size: 1000
   chunk_size: 5000

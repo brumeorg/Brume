@@ -79,7 +79,7 @@ public final class ScanConfigBuilder {
                     continue;
                 }
 
-                Optional<Suggestion> hit = ColumnStrategyMapper.suggestForColumn(column.name());
+                Optional<Suggestion> hit = ColumnStrategyMapper.suggestForColumn(column.name(), column.dataType());
                 hit.ifPresent(s -> rules.add(new SuggestedColumn(column.name(), s)));
             }
 

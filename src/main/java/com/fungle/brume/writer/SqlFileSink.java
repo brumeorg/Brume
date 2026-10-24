@@ -1,7 +1,9 @@
 package com.fungle.brume.writer;
 
+import com.fungle.brume.config.model.ColumnConfig;
 import com.fungle.brume.extraction.model.ExtractedRow;
 import com.fungle.brume.replicator.SchemaReplicator;
+import com.fungle.brume.schema.model.TableMetadata;
 import com.fungle.brume.util.SqlIdentifiers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +18,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
@@ -68,6 +73,8 @@ public class SqlFileSink implements Sink {
 
     private String currentTable;
     private List<String> currentColumns;
+    /** Unique keys already written per table (#29b) ; a table absent from the map is not guarded. */
+    private final Map<String, Optional<UniqueKeyGuard>> guards = new HashMap<>();
 
     /**
      * Constructs a sink that writes to the given output stream. The stream is
@@ -190,13 +197,17 @@ public class SqlFileSink implements Sink {
             throw new IllegalStateException("SqlFileSink.writeChunk called before open()");
         }
 
+        List<ExtractedRow> admitted = admitted(table, rows);
+        if (admitted.isEmpty()) {
+            return;
+        }
         try {
             if (!table.equals(currentTable)) {
                 terminateCurrentCopyBlock();
-                startNewCopyBlock(table, rows.getFirst());
+                startNewCopyBlock(table, admitted.getFirst());
             }
 
-            for (ExtractedRow row : rows) {
+            for (ExtractedRow row : admitted) {
                 writeRow(row);
             }
         } catch (IOException e) {
@@ -206,6 +217,46 @@ public class SqlFileSink implements Sink {
                     "Check disk space and filesystem state on the sink output-path.",
                     e);
         }
+    }
+
+    /**
+     * Drops the rows that would break a unique key of the table once restored (#29b) : psql
+     * would reject the whole COPY block. Each dropped row is counted in the execution report
+     * as a UNIQUE collision, the run goes on.
+     */
+    private List<ExtractedRow> admitted(String table, List<ExtractedRow> rows) {
+        UniqueKeyGuard guard = guards.computeIfAbsent(table, this::guardFor).orElse(null);
+        if (guard == null) {
+            return rows;
+        }
+        List<ExtractedRow> admitted = new ArrayList<>(rows.size());
+        for (ExtractedRow row : rows) {
+            if (guard.admit(row)) admitted.add(row);
+        }
+        int lost = rows.size() - admitted.size();
+        if (lost > 0) {
+            if (context.report() != null) context.report().recordUniqueCollisions(table, lost);
+            log.warn("[UNIQUE_COLLISION] {}.{} : {} ligne(s) non écrite(s) dans le dump — leur valeur "
+                    + "pseudonymisée entre en collision avec une autre ligne sur une contrainte UNIQUE",
+                    context.schemaName(), table, lost);
+        }
+        return admitted;
+    }
+
+    private Optional<UniqueKeyGuard> guardFor(String table) {
+        TableMetadata meta = context.schema() == null ? null : context.schema().get(table);
+        if (meta == null) {
+            return Optional.empty();
+        }
+        Map<String, ColumnConfig> rules = new HashMap<>();
+        if (context.config() != null && context.config().anonymization() != null
+                && context.config().anonymization().tables() != null) {
+            context.config().anonymization().tables().stream()
+                    .filter(t -> table.equals(t.table()) && t.columns() != null)
+                    .flatMap(t -> t.columns().stream())
+                    .forEach(c -> rules.put(c.name(), c));
+        }
+        return Optional.ofNullable(UniqueKeyGuard.forTable(meta, rules));
     }
 
     @Override
@@ -231,6 +282,7 @@ public class SqlFileSink implements Sink {
             lineBuffer = null;
             currentTable = null;
             currentColumns = null;
+            guards.clear();
             context = null;
             if (openedChain != null) {
                 try {
@@ -257,8 +309,10 @@ public class SqlFileSink implements Sink {
             writer.write("-- generated_at: " + Instant.now() + "\n");
         }
         writer.write("-- brume_version: " + VERSION + "\n");
-        writer.write("-- source_schema: " + context.schemaName() + "\n");
-        writer.write("-- target_schema: " + context.schemaName() + "\n");
+        // A legal schema name may hold a line break : it must not end the SQL comment (#26c).
+        String schemaComment = context.schemaName().replaceAll("\\p{Cntrl}", "?");
+        writer.write("-- source_schema: " + schemaComment + "\n");
+        writer.write("-- target_schema: " + schemaComment + "\n");
         writer.write("-- =============================================\n\n");
     }
 

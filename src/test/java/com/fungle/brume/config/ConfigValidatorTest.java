@@ -218,6 +218,80 @@ class ConfigValidatorTest {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+    // #45b — min_year / max_year validation on FAKE+DATE
+    // -------------------------------------------------------------------------
+
+    @org.junit.jupiter.api.DisplayName("#45b — bounds on non-FAKE strategy rejected")
+    @Test
+    void validate_throws_whenBoundsOnNonFakeStrategy() {
+        ColumnConfig col = new ColumnConfig("dob", Strategy.HASH, null, null, 2008, 2026);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("min_year/max_year")
+                .hasMessageContaining("HASH");
+    }
+
+    @org.junit.jupiter.api.DisplayName("#45b — bounds on FAKE but non-DATE semantic type rejected")
+    @Test
+    void validate_throws_whenBoundsOnFakeNonDate() {
+        ColumnConfig col = new ColumnConfig("email", Strategy.FAKE, SemanticType.EMAIL, null, 2008, 2026);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("min_year/max_year");
+    }
+
+    @Test
+    void validate_throws_whenOnlyOneBoundSet() {
+        ColumnConfig col = new ColumnConfig("dob", Strategy.FAKE, SemanticType.DATE, null, 2008, null);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("only one of min_year/max_year");
+    }
+
+    @Test
+    void validate_throws_whenBoundsOutOfRange() {
+        ColumnConfig col = new ColumnConfig("dob", Strategy.FAKE, SemanticType.DATE, null, 1800, 2050);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("out of [1900, 2100]");
+    }
+
+    @Test
+    void validate_throws_whenMinGreaterThanOrEqualToMax() {
+        ColumnConfig col = new ColumnConfig("dob", Strategy.FAKE, SemanticType.DATE, null, 2010, 2010);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining(">= max_year");
+    }
+
+    @Test
+    void validate_doesNotThrow_forValidDateRange() {
+        ColumnConfig col = new ColumnConfig("dob", Strategy.FAKE, SemanticType.DATE, null, 2008, 2026);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatCode(() -> validator.validate(config)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void validate_doesNotThrow_whenBothBoundsOmitted() {
+        // The historical 4-arg ColumnConfig path still works and the DATE scan rule stays valid.
+        ColumnConfig col = new ColumnConfig("dob", Strategy.FAKE, SemanticType.DATE, null);
+        AnonymizerConfig config = configWithColumn("users", col);
+
+        assertThatCode(() -> validator.validate(config)).doesNotThrowAnyException();
+    }
+
+    // -------------------------------------------------------------------------
 
     /** Builds a minimal valid config used as a baseline. */
     private AnonymizerConfig buildValidConfig() {

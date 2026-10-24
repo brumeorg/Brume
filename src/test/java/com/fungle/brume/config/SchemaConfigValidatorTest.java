@@ -10,6 +10,7 @@ import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
 import com.fungle.brume.config.model.TableExtractionConfig;
+import com.fungle.brume.error.BrumeErrorCode;
 import com.fungle.brume.schema.model.ColumnMetadata;
 import com.fungle.brume.schema.model.DatabaseSchema;
 import com.fungle.brume.schema.model.TableMetadata;
@@ -76,6 +77,45 @@ class SchemaConfigValidatorTest {
                 .hasMessageContaining("anonymization.tables")
                 .satisfies(ex -> assertThat(((ConfigurationException) ex).suggestion())
                         .contains("Did you mean 'users'"));
+    }
+
+    @Test
+    @DisplayName("#21d — NULLIFY on a NOT NULL column is rejected at validation (plan), "
+            + "not left to fail every write batch at execute")
+    void rejectsNullifyOnNotNullColumn() {
+        AnonymizerConfig config = config(
+                extraction("orders"),
+                anonymization(tableRules("orders", col("user_id", Strategy.NULLIFY), col("notes", Strategy.NULLIFY)))
+        );
+        DatabaseSchema schema = schema(table("orders",
+                col("id", "bigint"), new ColumnMetadata("user_id", "bigint", false), col("notes", "text")));
+
+        assertThatThrownBy(() -> validator.validate(config, schema, false))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("'orders.user_id' uses strategy NULLIFY but is NOT NULL")
+                .satisfies(ex -> assertThat(((ConfigurationException) ex).code())
+                        .isEqualTo(BrumeErrorCode.CONFIG_SCHEMA_NULLIFY_NOT_NULL));
+    }
+
+    @Test
+    @DisplayName("#29a — MASK and FAKE DATE are refused on a UNIQUE column ; FAKE FIRST_NAME is accepted (suffixed at run time)")
+    void rejectsNonInjectiveStrategiesOnUniqueColumns() {
+        DatabaseSchema schema = new DatabaseSchema(Map.of("account", new TableMetadata("account",
+                List.of(col("id", "bigint"), col("phone", "varchar"), col("birthday", "date"), col("nickname", "varchar")),
+                List.of(), List.of("id"), java.util.Set.of("id", "phone", "birthday", "nickname"))));
+
+        assertThatThrownBy(() -> validator.validate(config(extraction("account"),
+                anonymization(tableRules("account", col("phone", Strategy.MASK, SemanticType.PHONE)))), schema, false))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("'account.phone' is UNIQUE")
+                .satisfies(ex -> assertThat(((ConfigurationException) ex).code())
+                        .isEqualTo(BrumeErrorCode.CONFIG_SCHEMA_UNIQUE_NOT_INJECTIVE));
+        assertThatThrownBy(() -> validator.validate(config(extraction("account"),
+                anonymization(tableRules("account", col("birthday", Strategy.FAKE, SemanticType.DATE)))), schema, false))
+                .hasMessageContaining("'account.birthday' is UNIQUE");
+        assertThatCode(() -> validator.validate(config(extraction("account"),
+                anonymization(tableRules("account", col("nickname", Strategy.FAKE, SemanticType.FIRST_NAME)))), schema, false))
+                .doesNotThrowAnyException();
     }
 
     @Test

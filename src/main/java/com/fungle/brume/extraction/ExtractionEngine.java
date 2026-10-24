@@ -2,38 +2,36 @@ package com.fungle.brume.extraction;
 
 import com.fungle.brume.config.ReplicationProperties;
 import com.fungle.brume.config.model.AnonymizerConfig;
+import com.fungle.brume.config.model.ExtractionConfig;
 import com.fungle.brume.config.model.TableExtractionConfig;
 import com.fungle.brume.extraction.model.ExtractedRow;
 import com.fungle.brume.extraction.model.ExtractionResult;
 import com.fungle.brume.extraction.model.OrderedExtractionResult;
 import com.fungle.brume.report.ExecutionReport;
+import com.fungle.brume.report.OrphanReference;
 import com.fungle.brume.schema.GraphAnalyzer;
 import com.fungle.brume.schema.model.DatabaseSchema;
 import com.fungle.brume.schema.model.TableMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Orchestrates the full extraction pipeline for a given {@link AnonymizerConfig}.
  *
  * <p>Steps performed:
  * <ol>
- *   <li>Reads each declared table from the source database via {@link CursorReader},
- *       applying any optional SQL filter.</li>
- *   <li>Resolves FK child rows via {@link FkChildResolver}: tables that hold a FK column
- *       referencing any seeded table are fetched, up to {@code fk_depth} levels.</li>
- *   <li>Resolves missing FK parent rows via {@link FkParentResolver}: ensures referential
- *       integrity for both the seeds and the newly fetched child rows.</li>
+ *   <li>Walks the FK graph with {@link FkTraversal} (ADR-0050) : the declared tables are read
+ *       with their optional SQL filter, then every row within {@code fk_depth} FK hops of them,
+ *       towards parents and children ; {@code orphan_policy} handles the edge of the radius.</li>
  *   <li>Re-orders the result in topological insertion order (parents before children)
  *       using {@link GraphAnalyzer#topologicalSort}.</li>
  * </ol>
  *
  * <p>The returned {@link ExtractionResult} is ready for anonymization and writing.
- *
- * <p>Note: this component is intentionally not wired into {@code ReplicationAgent} yet —
- * that integration happens in Phase 6.
  */
 @Component
 public class ExtractionEngine {
@@ -41,20 +39,14 @@ public class ExtractionEngine {
     private static final Logger log = LoggerFactory.getLogger(ExtractionEngine.class);
 
     private final CursorReader cursorReader;
-    private final FkChildResolver fkChildResolver;
-    private final FkParentResolver fkParentResolver;
     private final GraphAnalyzer graphAnalyzer;
     private final ReplicationProperties replicationProperties;
 
     public ExtractionEngine(
             CursorReader cursorReader,
-            FkChildResolver fkChildResolver,
-            FkParentResolver fkParentResolver,
             GraphAnalyzer graphAnalyzer,
             ReplicationProperties replicationProperties) {
         this.cursorReader = cursorReader;
-        this.fkChildResolver = fkChildResolver;
-        this.fkParentResolver = fkParentResolver;
         this.graphAnalyzer = graphAnalyzer;
         this.replicationProperties = replicationProperties;
     }
@@ -69,7 +61,8 @@ public class ExtractionEngine {
      */
     public OrderedExtractionResult extract(AnonymizerConfig config, DatabaseSchema schema,
                                             ExecutionReport report) {
-        List<TableExtractionConfig> tableConfigs = config.extraction().tables();
+        ExtractionConfig extraction = config.extraction();
+        List<TableExtractionConfig> tableConfigs = extraction.tables();
 
         if (tableConfigs.isEmpty()) {
             log.warn("No tables declared in extraction.tables config — nothing to extract.");
@@ -79,31 +72,39 @@ public class ExtractionEngine {
         String schemaName = replicationProperties.schema();
         ExtractionResult result = new ExtractionResult();
 
-        for (TableExtractionConfig tableConfig : tableConfigs) {
-            String tableName = tableConfig.table();
-            String filter = tableConfig.filter();
-
-            boolean hasFilter = filter != null && !filter.isBlank();
-            log.info("Extracting table {}.{}{}", schemaName, tableName,
-                    hasFilter ? " (filtered)" : "");
-
-            List<ExtractedRow> rows = cursorReader.read(schemaName, tableName, filter);
-
-            TableMetadata meta = schema.get(tableName);
-            String pkColumn = (meta != null) ? meta.singlePrimaryKeyColumn() : null;
-            if (pkColumn != null) {
-                rows.forEach(row -> result.addWithPk(row, pkColumn));
-            } else {
-                rows.forEach(result::add);
+        FkTraversal.RowReader reader = new FkTraversal.RowReader() {
+            @Override
+            public void readSeeds(String table, String filter, Consumer<ExtractedRow> consumer) {
+                log.info("Extracting table {}.{}{}", schemaName, table,
+                        filter != null && !filter.isBlank() ? " (filtered)" : "");
+                cursorReader.streamRows(schemaName, table, filter, consumer);
             }
 
-            // Record direct extraction count for this table
-            report.recordExtracted(tableName, (long) rows.size());
-        }
+            @Override
+            public void readWhereIn(String table, List<String> keyColumns, Collection<Object> keys,
+                                    Consumer<ExtractedRow> consumer) {
+                cursorReader.streamWhereIn(schemaName, table, keyColumns, keys, null,
+                        FkTraversal.readOrder(schema, table, keyColumns), extraction.fetchSize(), consumer);
+            }
+        };
 
-        fkChildResolver.resolve(result, schema, schemaName, config.extraction().fkDepth(), report);
-
-        fkParentResolver.resolve(result, schema, schemaName, config.extraction().fkDepth(), report);
+        List<OrphanReference> orphans = new FkTraversal(schema, extraction.fkDepth(), extraction.orphanPolicy(), () -> { })
+                .run(tableConfigs, reader, (row, origin) -> {
+                    switch (origin) {
+                        case DIRECT -> report.recordExtracted(row.table(), 1L);
+                        case FK_PARENT -> report.recordFkParent(row.table(), 1L);
+                        case FK_CHILD -> report.recordFkChild(row.table(), 1L);
+                    }
+                    TableMetadata meta = schema.get(row.table());
+                    String pkColumn = (meta != null) ? meta.singlePrimaryKeyColumn() : null;
+                    if (pkColumn != null) {
+                        result.addWithPk(row, pkColumn);
+                    } else {
+                        result.add(row);
+                    }
+                });
+        report.recordOrphanReferences(orphans);
+        orphans.forEach(o -> log.warn("[ORPHANS] {} (extraction.orphan_policy: ALLOW_ORPHANS)", o.describe()));
 
         List<String> sortedOrder = graphAnalyzer.topologicalSort(schema);
         OrderedExtractionResult sorted = result.toOrdered(sortedOrder);
@@ -114,4 +115,3 @@ public class ExtractionEngine {
         return sorted;
     }
 }
-

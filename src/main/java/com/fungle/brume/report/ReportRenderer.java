@@ -236,6 +236,15 @@ public class ReportRenderer {
                 sb.append(String.format(" [WARN] %s conflit(s) ignorés (ON CONFLICT DO NOTHING)%n",
                         formatMs(summary.totalConflicts())));
             }
+            if (summary.totalUniqueCollisions() > 0) {
+                sb.append(String.format(" [WARN] %s ligne(s) perdue(s) : valeur pseudonymisée en collision"
+                        + " sur une contrainte UNIQUE (#29a)%n", formatMs(summary.totalUniqueCollisions())));
+                for (TableStats ts : summary.tableStats()) {
+                    if (ts.uniqueCollisions() > 0) {
+                        sb.append(String.format("        %s : %s%n", ts.table(), formatMs(ts.uniqueCollisions())));
+                    }
+                }
+            }
             if (summary.totalBatchErrors() > 0) {
                 sb.append(String.format(" [WARN] %s lot(s) en erreur (lignes non insérées)%n",
                         formatMs(summary.totalBatchErrors())));

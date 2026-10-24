@@ -14,6 +14,7 @@ import com.fungle.brume.config.model.ColumnReference;
 import com.fungle.brume.config.model.ExtractionConfig;
 import com.fungle.brume.config.model.JsonPathConfig;
 import com.fungle.brume.config.model.LinkedColumnsConfig;
+import com.fungle.brume.config.model.OrphanPolicy;
 import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
@@ -26,6 +27,7 @@ import com.fungle.brume.report.DdlFailure;
 import com.fungle.brume.report.ExecutionSummary;
 import com.fungle.brume.report.HeapStats;
 import com.fungle.brume.report.Insight;
+import com.fungle.brume.report.OrphanReference;
 import com.fungle.brume.report.BrumeRuntimeContext;
 import com.fungle.brume.report.PhaseTimings;
 import com.fungle.brume.report.PiiWarning;
@@ -90,6 +92,7 @@ public class BrumeRuntimeHints implements RuntimeHintsRegistrar {
                 ColumnReference.class,
                 JsonPathConfig.class,
                 LinkedColumnsConfig.class,
+                OrphanPolicy.class,
                 SemanticType.class,
                 Strategy.class,
                 TableAnonymizationConfig.class,
@@ -114,6 +117,7 @@ public class BrumeRuntimeHints implements RuntimeHintsRegistrar {
                 HeapStats.class,
                 Insight.class,
                 Insight.Level.class,             // inner enum — Jackson serialises by name
+                OrphanReference.class,
                 BrumeRuntimeContext.class,
                 PhaseTimings.class,
                 PiiWarning.class,

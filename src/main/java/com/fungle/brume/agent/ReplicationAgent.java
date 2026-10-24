@@ -253,9 +253,10 @@ public class ReplicationAgent {
             config = fkStrategyPropagator.propagate(config, schema);
 
             schemaConfigValidator.validate(config, schema, brumeProperties.strictConfig());
+            anonymizationEngine.prepare(schema, config.anonymization());
 
             PlanSummary planSummary = planEstimator.estimate(
-                    config, schema, replicationProperties.schema(), replicationProperties.fkDepth());
+                    config, schema, replicationProperties.schema(), config.extraction().fkDepth());
             List<PiiWarning> piiWarnings = piiDetector.detect(
                     schema, config, replicationProperties.schema());
             // Log PII warnings immediately

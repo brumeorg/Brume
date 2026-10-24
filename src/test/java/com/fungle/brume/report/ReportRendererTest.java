@@ -7,6 +7,7 @@ import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.config.PipelineMode;
 import com.fungle.brume.config.model.Strategy;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -177,6 +178,24 @@ class ReportRendererTest {
 
         assertThat(text).contains("[WARN]");
         assertThat(text).contains("9 conflit(s)");
+    }
+
+    @Test
+    @DisplayName("#29a — rows lost to a UNIQUE collision are listed per table, apart from the « already in target » conflicts")
+    void shouldListRowsLostToUniqueCollisions() {
+        BrumeProperties props = props("", "", "");
+        ReportRenderer renderer = new ReportRenderer(props, objectMapper,
+                new HtmlReportRenderer(props));
+        ExecutionSummary summary = new ExecutionSummary("src", "dst", true, null,
+                new PhaseTimings(100, 50, 200, 400),
+                List.of(new TableStats("holiday", 60, 0, 0, 51, 0, 9, 0),
+                        new TableStats("orders", 100, 0, 100, 0, 0)),
+                List.of(), Instant.now());
+
+        String text = renderer.renderText(summary);
+
+        assertThat(text).contains("[WARN] 9 ligne(s) perdue(s)", "        holiday : 9")
+                .doesNotContain("conflit(s)", "orders : ");
     }
 
     @Test

@@ -1,5 +1,8 @@
 package com.fungle.brume.writer;
 
+import java.sql.Timestamp;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -11,6 +14,12 @@ import java.util.List;
  * {@code COPY} command, "Text Format" section): backslash, newline, carriage
  * return and tab are escaped with a leading backslash; SQL {@code NULL} is
  * encoded as the literal {@code \N}.
+ *
+ * <p>A {@link Timestamp} is written with its UTC offset (#5c) : {@code toString()} gives the
+ * wall-clock time in the JVM time zone with no offset, which {@code psql} restoring a dump
+ * reads in the server time zone — a {@code timestamptz} moved by the difference. With the
+ * offset the instant is exact in any session ; a {@code timestamp without time zone} column
+ * ignores the offset and keeps the wall-clock time, as before.
  *
  * <p>Allocation profile: for values whose {@code toString()} contains no escape-
  * required character (the dominant case for IDs, timestamps, short ASCII), the
@@ -37,6 +46,9 @@ public final class TsvEscape {
     private static final String ESCAPED_NEWLINE = "\\n";
     private static final String ESCAPED_CR = "\\r";
     private static final String ESCAPED_TAB = "\\t";
+    /** Microseconds : the precision of PostgreSQL timestamps. */
+    private static final DateTimeFormatter TIMESTAMP_WITH_OFFSET =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSSxxx");
 
     private TsvEscape() {
         // utility class — no instances
@@ -51,6 +63,7 @@ public final class TsvEscape {
      *   <li>{@code null} → {@code \N}</li>
      *   <li>{@code byte[]} → throws {@link UnsupportedOperationException}
      *       (see class-level limitations).</li>
+     *   <li>{@link Timestamp} → wall-clock time in the JVM time zone with its UTC offset.</li>
      *   <li>Otherwise: {@code value.toString()} with backslash, newline, carriage
      *       return and tab each replaced by their two-character backslash escape.</li>
      * </ul>
@@ -71,7 +84,9 @@ public final class TsvEscape {
                             + "different strategy or wait for bytea support to land alongside ticket #5 (B1).");
         }
 
-        String s = value.toString();
+        String s = value instanceof Timestamp ts
+                ? ts.toInstant().atZone(ZoneId.systemDefault()).format(TIMESTAMP_WITH_OFFSET)
+                : value.toString();
         int len = s.length();
         int start = 0;
         for (int i = 0; i < len; i++) {

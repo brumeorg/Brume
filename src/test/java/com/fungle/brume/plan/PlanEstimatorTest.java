@@ -5,10 +5,14 @@ import com.fungle.brume.config.PipelineMode;
 import com.fungle.brume.config.model.AnonymizationConfig;
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ExtractionConfig;
+import com.fungle.brume.config.model.OrphanPolicy;
 import com.fungle.brume.config.model.TableExtractionConfig;
+import com.fungle.brume.extraction.CursorReader;
+import com.fungle.brume.extraction.model.ExtractedRow;
 import com.fungle.brume.report.PlanSummary;
 import com.fungle.brume.report.PlanTableStats;
 import com.fungle.brume.schema.model.DatabaseSchema;
+import com.fungle.brume.schema.model.ForeignKey;
 import com.fungle.brume.schema.model.TableMetadata;
 import com.fungle.brume.timeout.BoundedQueryExecutor;
 import com.fungle.brume.writer.CompressionType;
@@ -21,28 +25,40 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataRetrievalFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import com.fungle.brume.schema.model.ForeignKey;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link PlanEstimator}.
  *
- * <p>No Spring context — Mockito is used to mock the JdbcTemplate. Covers both
- * {@link PlanMode#EXACT} (default) and {@link PlanMode#ESTIMATE} (B3 / ADR-0003).
+ * <p>No Spring context — the {@link CursorReader} (EXACT) and the {@link JdbcTemplate}
+ * (ESTIMATE) are mocked. EXACT runs the {@code execute} FK walk on key columns (ADR-0050) ;
+ * ESTIMATE reads {@code pg_class.reltuples} (B3 / ADR-0003).
  */
 @ExtendWith(MockitoExtension.class)
 class PlanEstimatorTest {
+
+    private static final ForeignKey ITEM_ORDER = new ForeignKey("order_items", "order_id", "orders", "id");
+    private static final ForeignKey ITEM_PRODUCT = new ForeignKey("order_items", "product_id", "products", "id");
+
+    @Mock
+    private CursorReader cursorReader;
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -61,135 +77,124 @@ class PlanEstimatorTest {
         );
     }
 
-    /**
-     * EXACT mode — when the JdbcTemplate throws a DataAccessException (e.g. table not found),
-     * the PlanEstimator must record -1L as plannedDirect and not propagate the exception.
-     */
+    private PlanEstimator estimator(PlanMode mode) {
+        return new PlanEstimator(cursorReader, BoundedQueryExecutor.passthrough(jdbcTemplate), props(mode));
+    }
+
+    private static AnonymizerConfig config(int fkDepth, OrphanPolicy policy, String... tables) {
+        List<TableExtractionConfig> seeds = java.util.Arrays.stream(tables)
+                .map(t -> new TableExtractionConfig(t, null)).toList();
+        return new AnonymizerConfig(new ExtractionConfig(fkDepth, policy, 1000, 1000, 10_000, seeds),
+                new AnonymizationConfig(List.of(), List.of()));
+    }
+
+    private static DatabaseSchema shop() {
+        Map<String, TableMetadata> tables = new LinkedHashMap<>();
+        tables.put("orders", new TableMetadata("orders", List.of(), List.of(), "id"));
+        tables.put("order_items", new TableMetadata("order_items", List.of(), List.of(ITEM_ORDER, ITEM_PRODUCT), "id"));
+        tables.put("products", new TableMetadata("products", List.of(), List.of(), "id"));
+        return new DatabaseSchema(tables);
+    }
+
+    /** Seeds {@code count} rows of {@code table} (keys only) through the projected seed read. */
+    private void seedRows(String table, int count) {
+        doAnswer(inv -> {
+            Consumer<ExtractedRow> consumer = inv.getArgument(6);
+            for (long id = 1; id <= count; id++) consumer.accept(new ExtractedRow(table, Map.of("id", id)));
+            return null;
+        }).when(cursorReader).streamRows(eq("test_schema"), eq(table), isNull(), anyList(), anyList(), anyInt(), any());
+    }
+
     @Test
-    void exactMode_shouldReturnNegativeOneWhenTableNotFound() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class)))
-                .thenThrow(new DataRetrievalFailureException("Table not found"));
+    void exactMode_shouldReturnNegativeOneWhenTheWalkFails() {
+        doThrow(new DataRetrievalFailureException("Table not found")).when(cursorReader)
+                .streamRows(eq("test_schema"), eq("orders"), isNull(), anyList(), anyList(), anyInt(), any());
 
-        PlanEstimator estimator = new PlanEstimator(
-                jdbcTemplate, BoundedQueryExecutor.passthrough(jdbcTemplate), props(PlanMode.EXACT));
+        PlanSummary summary = estimator(PlanMode.EXACT).estimate(config(3, null, "orders"), shop(), "test_schema", 3);
 
-        AnonymizerConfig config = new AnonymizerConfig(
-                new ExtractionConfig(3, 1000, List.of(new TableExtractionConfig("orders", null))),
-                new AnonymizationConfig(List.of(), List.of())
-        );
-        DatabaseSchema schema = new DatabaseSchema(
-                Map.of("orders", new TableMetadata("orders", List.of(), List.of(), "id"))
-        );
-
-        PlanSummary summary = estimator.estimate(config, schema, "test_schema", 3);
-
-        assertThat(summary).isNotNull();
-        assertThat(summary.tableStats()).hasSize(1);
-        PlanTableStats stats = summary.tableStats().get(0);
+        PlanTableStats stats = summary.tableStats().getFirst();
         assertThat(stats.table()).isEqualTo("orders");
         assertThat(stats.plannedDirect()).isEqualTo(-1L);
         assertThat(stats.plannedTotal()).isEqualTo(-1L);
     }
 
-    /**
-     * EXACT mode — when the query succeeds, the PlanEstimator returns the correct row count.
-     */
     @Test
-    void exactMode_shouldReturnCorrectCountWhenQuerySucceeds() {
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class)))
-                .thenReturn(42L);
+    void exactMode_shouldCountSeedRowsReadingKeyColumnsOnly() {
+        seedRows("products", 42);
 
-        PlanEstimator estimator = new PlanEstimator(
-                jdbcTemplate, BoundedQueryExecutor.passthrough(jdbcTemplate), props(PlanMode.EXACT));
-
-        AnonymizerConfig config = new AnonymizerConfig(
-                new ExtractionConfig(3, 1000, List.of(new TableExtractionConfig("users", null))),
-                new AnonymizationConfig(List.of(), List.of())
-        );
-        DatabaseSchema schema = new DatabaseSchema(
-                Map.of("users", new TableMetadata("users", List.of(), List.of(), "id"))
-        );
-
-        PlanSummary summary = estimator.estimate(config, schema, "test_schema", 3);
+        PlanSummary summary = estimator(PlanMode.EXACT).estimate(config(3, null, "products"), shop(), "test_schema", 3);
 
         assertThat(summary.tableStats()).hasSize(1);
-        assertThat(summary.tableStats().get(0).plannedDirect()).isEqualTo(42L);
-        assertThat(summary.tableStats().get(0).plannedTotal()).isEqualTo(42L);
+        assertThat(summary.tableStats().getFirst().plannedDirect()).isEqualTo(42L);
         assertThat(summary.totalPlanned()).isEqualTo(42L);
+        verify(cursorReader).streamRows(eq("test_schema"), eq("products"), isNull(), eq(List.of("id")),
+                eq(List.of()), anyInt(), any());
     }
 
     /**
-     * ESTIMATE mode — queries {@code pg_class.reltuples} via the parameterized
-     * varargs overload (schemaName, tableName as bind params), never the parameter-less
-     * {@code COUNT(*)} form used by EXACT.
+     * FK children of a seed appear as "fk-child", and their other parents as "fk-parent" —
+     * the same walk as execute (#71a, ADR-0050).
      */
     @Test
-    void estimateMode_shouldReadReltuplesAndAvoidCountStar() {
-        when(jdbcTemplate.queryForObject(
-                contains("pg_class"), eq(Long.class), any(Object[].class)))
+    void exactMode_shouldCountFkChildrenAndTheirParents() {
+        seedRows("orders", 2);
+        doAnswer(inv -> {
+            Consumer<ExtractedRow> consumer = inv.getArgument(7);
+            consumer.accept(new ExtractedRow("order_items", Map.of("id", 10L, "order_id", 1L, "product_id", 7L)));
+            consumer.accept(new ExtractedRow("order_items", Map.of("id", 11L, "order_id", 2L, "product_id", 7L)));
+            return null;
+        }).when(cursorReader).streamWhereIn(eq("test_schema"), eq("order_items"), eq(List.of("order_id")),
+                any(), anyList(), anyList(), anyInt(), any());
+        doAnswer(inv -> {
+            Consumer<ExtractedRow> consumer = inv.getArgument(7);
+            consumer.accept(new ExtractedRow("products", Map.of("id", 7L)));
+            return null;
+        }).when(cursorReader).streamWhereIn(eq("test_schema"), eq("products"), eq(List.of("id")),
+                any(), anyList(), anyList(), anyInt(), any());
+
+        PlanSummary summary = estimator(PlanMode.EXACT).estimate(config(1, null, "orders"), shop(), "test_schema", 1);
+
+        Map<String, PlanTableStats> byTable = new LinkedHashMap<>();
+        summary.tableStats().forEach(s -> byTable.put(s.table(), s));
+        assertThat(byTable.get("orders").origin()).isEqualTo("direct");
+        assertThat(byTable.get("orders").plannedDirect()).isEqualTo(2L);
+        assertThat(byTable.get("order_items").origin()).isEqualTo("fk-child");
+        assertThat(byTable.get("order_items").plannedFkChildren()).isEqualTo(2L);
+        assertThat(byTable.get("products").origin()).isEqualTo("fk-parent");
+        assertThat(byTable.get("products").plannedFkParents()).isEqualTo(1L);
+        assertThat(summary.totalPlanned()).isEqualTo(5L);
+    }
+
+    /**
+     * ESTIMATE mode — queries {@code pg_class.reltuples} via the parameterized varargs overload
+     * and never reads rows.
+     */
+    @Test
+    void estimateMode_shouldReadReltuplesAndNeverReadRows() {
+        when(jdbcTemplate.queryForObject(contains("pg_class"), eq(Long.class), any(Object[].class)))
                 .thenReturn(50_000L);
 
-        PlanEstimator estimator = new PlanEstimator(
-                jdbcTemplate, BoundedQueryExecutor.passthrough(jdbcTemplate), props(PlanMode.ESTIMATE));
+        PlanSummary summary = estimator(PlanMode.ESTIMATE).estimate(config(3, null, "products"), shop(), "test_schema", 3);
 
-        AnonymizerConfig config = new AnonymizerConfig(
-                new ExtractionConfig(3, 1000, List.of(new TableExtractionConfig("users", null))),
-                new AnonymizationConfig(List.of(), List.of())
-        );
-        DatabaseSchema schema = new DatabaseSchema(
-                Map.of("users", new TableMetadata("users", List.of(), List.of(), "id"))
-        );
-
-        PlanSummary summary = estimator.estimate(config, schema, "test_schema", 3);
-
-        // ESTIMATE produced a value via reltuples
-        assertThat(summary.tableStats()).hasSize(1);
-        assertThat(summary.tableStats().get(0).plannedDirect()).isEqualTo(50_000L);
-
-        // EXACT path (parameter-less COUNT) must NOT have been used
-        verify(jdbcTemplate, never()).queryForObject(anyString(), eq(Long.class));
+        PlanTableStats products = summary.tableStats().getFirst();
+        assertThat(products.table()).isEqualTo("products");
+        assertThat(products.plannedDirect()).isEqualTo(50_000L);
+        verifyNoInteractions(cursorReader);
     }
 
-    /**
-     * FK child tables (tables whose FK column points to a direct seed) must appear in the plan
-     * as "fk-child" with a non-zero plannedFkChildren — mirrors FkChildResolver (ADR-0038).
-     */
     @Test
-    void exactMode_shouldCountFkChildTables() {
-        // orders (direct, 10 rows) ← order_items.order_id → orders.id (25 rows)
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class)))
-                .thenReturn(10L, 25L);
+    void estimateMode_shouldApplyTheRadiusAndOrphanPolicy() {
+        when(jdbcTemplate.queryForObject(contains("pg_class"), eq(Long.class), any(Object[].class)))
+                .thenReturn(10L);
 
-        PlanEstimator estimator = new PlanEstimator(
-                jdbcTemplate, BoundedQueryExecutor.passthrough(jdbcTemplate), props(PlanMode.EXACT));
+        PlanSummary keep = estimator(PlanMode.ESTIMATE)
+                .estimate(config(1, OrphanPolicy.KEEP_PARENTS, "orders"), shop(), "test_schema", 1);
+        PlanSummary strict = estimator(PlanMode.ESTIMATE)
+                .estimate(config(1, OrphanPolicy.ALLOW_ORPHANS, "orders"), shop(), "test_schema", 1);
 
-        ForeignKey fk = new ForeignKey("order_items", "order_id", "orders", "id");
-        DatabaseSchema schema = new DatabaseSchema(Map.of(
-                "orders",      new TableMetadata("orders",      List.of(), List.of(),     "id"),
-                "order_items", new TableMetadata("order_items", List.of(), List.of(fk),   "id")
-        ));
-        AnonymizerConfig config = new AnonymizerConfig(
-                new ExtractionConfig(3, 1000, List.of(new TableExtractionConfig("orders", null))),
-                new AnonymizationConfig(List.of(), List.of())
-        );
-
-        PlanSummary summary = estimator.estimate(config, schema, "test_schema", 3);
-
-        assertThat(summary.tableStats()).hasSize(2);
-
-        PlanTableStats ordersStat = summary.tableStats().stream()
-                .filter(s -> "orders".equals(s.table())).findFirst().orElseThrow();
-        assertThat(ordersStat.origin()).isEqualTo("direct");
-        assertThat(ordersStat.plannedDirect()).isEqualTo(10L);
-        assertThat(ordersStat.plannedFkChildren()).isEqualTo(0L);
-
-        PlanTableStats itemsStat = summary.tableStats().stream()
-                .filter(s -> "order_items".equals(s.table())).findFirst().orElseThrow();
-        assertThat(itemsStat.origin()).isEqualTo("fk-child");
-        assertThat(itemsStat.plannedFkChildren()).isEqualTo(25L);
-        assertThat(itemsStat.plannedDirect()).isEqualTo(0L);
-
-        assertThat(summary.totalPlanned()).isEqualTo(35L);
+        assertThat(keep.tableStats()).extracting(PlanTableStats::table)
+                .as("products : parent of the FK child, beyond fk_depth").containsExactly("orders", "order_items", "products");
+        assertThat(strict.tableStats()).extracting(PlanTableStats::table).containsExactly("orders", "order_items");
     }
 
     /**
@@ -199,20 +204,10 @@ class PlanEstimatorTest {
      */
     @Test
     void estimate_shouldRejectInvalidSchemaName_withClearMessage() {
-        PlanEstimator estimator = new PlanEstimator(
-                jdbcTemplate, BoundedQueryExecutor.passthrough(jdbcTemplate), props(PlanMode.EXACT));
-
-        AnonymizerConfig config = new AnonymizerConfig(
-                new ExtractionConfig(3, 1000, List.of(new TableExtractionConfig("orders", null))),
-                new AnonymizationConfig(List.of(), List.of())
-        );
-        DatabaseSchema schema = new DatabaseSchema(
-                Map.of("orders", new TableMetadata("orders", List.of(), List.of(), "id"))
-        );
-
-        assertThatThrownBy(() -> estimator.estimate(config, schema, "bad-schema; DROP", 3))
+        assertThatThrownBy(() -> estimator(PlanMode.EXACT)
+                .estimate(config(3, null, "orders"), shop(), "bad\0schema", 3))
                 .isInstanceOf(IllegalArgumentException.class);
-        // No JDBC call should have been issued — fail-fast happened before any SQL was built
-        verify(jdbcTemplate, never()).queryForObject(anyString(), eq(Long.class));
+        // No read should have been issued — fail-fast happened before any SQL was built
+        verifyNoInteractions(cursorReader);
     }
 }

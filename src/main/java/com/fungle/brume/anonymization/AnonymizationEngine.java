@@ -1,8 +1,10 @@
 package com.fungle.brume.anonymization;
 
 import com.fungle.brume.anonymization.strategies.AnonymizationStrategy;
+import com.fungle.brume.anonymization.strategies.FakeStrategy;
 import com.fungle.brume.config.model.AnonymizationConfig;
 import com.fungle.brume.config.model.ColumnConfig;
+import com.fungle.brume.config.model.LinkedColumnsConfig;
 import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
@@ -10,6 +12,10 @@ import com.fungle.brume.extraction.model.ExtractedRow;
 import com.fungle.brume.extraction.model.ExtractionResult;
 import com.fungle.brume.extraction.model.OrderedExtractionResult;
 import com.fungle.brume.report.ExecutionReport;
+import com.fungle.brume.schema.model.ColumnMetadata;
+import com.fungle.brume.schema.model.DatabaseSchema;
+import com.fungle.brume.schema.model.ForeignKey;
+import com.fungle.brume.schema.model.TableMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -17,8 +23,11 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -48,6 +57,8 @@ public class AnonymizationEngine {
     private final SemanticKeyResolver semanticKeyResolver;
     private final JsonPathProcessor jsonPathProcessor;
     private final Map<AnonymizationConfig, Map<String, List<ColumnConfig>>> rulesCache = new ConcurrentHashMap<>();
+    /** "table.column" → declared length (null = unbounded) of the columns needing unique fakes (#29a). */
+    private volatile Map<String, Integer> uniqueColumns = Map.of();
 
     /**
      * Creates a new {@code AnonymizationEngine}.
@@ -66,6 +77,77 @@ public class AnonymizationEngine {
         this.substitutionDictionary = substitutionDictionary;
         this.semanticKeyResolver = semanticKeyResolver;
         this.jsonPathProcessor = jsonPathProcessor;
+    }
+
+    /**
+     * Run-scoped preparation (#29a) : records the columns whose FAKE values must not collide —
+     * columns unique on their own in the source schema — and every column that must hold the
+     * very same value as one of them : both ends of each FK column pair, in both directions, and
+     * the members of {@code linked_columns} (#29c). The suffix reaches the whole class, cut to the
+     * shortest declared length of the class, so that a FK still finds its parent value. Without
+     * this call (unit tests, audit), no uniqueness suffix is applied.
+     *
+     * @param schema the analyzed source schema
+     * @param config the anonymization config of the run
+     */
+    public void prepare(DatabaseSchema schema, AnonymizationConfig config) {
+        Map<String, String> classes = new HashMap<>();
+        for (TableMetadata table : schema.tables().values()) {
+            for (ForeignKey fk : table.foreignKeys()) {
+                for (int i = 0; i < fk.fromColumns().size(); i++) {
+                    union(classes, fk.fromTable() + "." + fk.fromColumns().get(i), fk.toTable() + "." + fk.toColumns().get(i));
+                }
+            }
+        }
+        if (config != null && config.linkedColumns() != null) {
+            for (LinkedColumnsConfig linked : config.linkedColumns()) {
+                List<String> members = linked.columns() == null ? List.of()
+                        : linked.columns().stream().map(r -> r.table() + "." + r.column()).toList();
+                for (int i = 1; i < members.size(); i++) {
+                    union(classes, members.getFirst(), members.get(i));
+                }
+            }
+        }
+        Set<String> uniqueClasses = new HashSet<>();
+        schema.tables().values().forEach(t -> t.uniqueColumns().forEach(c -> uniqueClasses.add(find(classes, t.name() + "." + c))));
+
+        Set<String> members = new HashSet<>(classes.keySet());
+        schema.tables().values().forEach(t -> t.uniqueColumns().forEach(c -> members.add(t.name() + "." + c)));
+        Map<String, Integer> classLength = new HashMap<>();
+        for (String ref : members) {
+            Integer length = maxLength(schema, ref);
+            if (length != null) classLength.merge(find(classes, ref), length, Math::min);
+        }
+        Map<String, Integer> lengths = new HashMap<>();
+        for (String ref : members) {
+            String root = find(classes, ref);
+            if (uniqueClasses.contains(root)) lengths.put(ref, classLength.get(root));
+        }
+        this.uniqueColumns = Collections.unmodifiableMap(lengths);
+    }
+
+    private static String find(Map<String, String> classes, String ref) {
+        String root = classes.getOrDefault(ref, ref);
+        if (root.equals(ref)) return ref;
+        root = find(classes, root);
+        classes.put(ref, root);
+        return root;
+    }
+
+    private static void union(Map<String, String> classes, String a, String b) {
+        classes.putIfAbsent(a, a);
+        classes.putIfAbsent(b, b);
+        String rootA = find(classes, a);
+        String rootB = find(classes, b);
+        if (!rootA.equals(rootB)) classes.put(rootA, rootB);
+    }
+
+    private static Integer maxLength(DatabaseSchema schema, String ref) {
+        int dot = ref.indexOf('.');
+        TableMetadata table = schema.get(ref.substring(0, dot));
+        return table == null ? null : table.columns().stream()
+                .filter(c -> c.name().equals(ref.substring(dot + 1)))
+                .map(ColumnMetadata::maxLength).filter(Objects::nonNull).findFirst().orElse(null);
     }
 
     /**
@@ -204,7 +286,28 @@ public class AnonymizationEngine {
 
         AnonymizationStrategy impl = strategyResolver.resolve(colConfig.strategy());
         String semanticKey = semanticKeyResolver.resolve(table, column, config);
-        Object anonymized = impl.anonymize(value, colConfig.type(), semanticKey, substitutionDictionary);
+
+        // Special path (#45b) : FAKE+DATE with explicit per-column min_year/max_year bounds
+        // (pediatric apps, student directories, ...). The standard AnonymizationStrategy.anonymize
+        // signature doesn't carry ColumnConfig, so we read the bounds here and route through
+        // FakeStrategy.anonymizeDate directly. Columns without bounds fall through to the normal
+        // path and get the adult-DOB default anchor baked into FakeStrategy.generateWithSeed.
+        Object anonymized;
+        if (impl instanceof FakeStrategy fs
+                && colConfig.type() == SemanticType.DATE
+                && (colConfig.minYear() != null || colConfig.maxYear() != null)) {
+            anonymized = fs.anonymizeDate(value, semanticKey, substitutionDictionary,
+                    colConfig.minYear(), colConfig.maxYear());
+        } else {
+            anonymized = impl.anonymize(value, colConfig.type(), semanticKey, substitutionDictionary);
+        }
+
+        // #29a — a small-vocabulary fake on a UNIQUE column would collide : suffix it.
+        String ref = table + "." + column;
+        if (impl instanceof FakeStrategy fs && anonymized instanceof String fake && value != null
+                && FakeStrategy.SMALL_VOCABULARY.contains(colConfig.type()) && uniqueColumns.containsKey(ref)) {
+            anonymized = fs.withUniqueSuffix(fake, value, uniqueColumns.get(ref));
+        }
 
         report.recordStrategy(table, column, colConfig.strategy().name());
 

@@ -1,6 +1,7 @@
 package com.fungle.brume.anonymization;
 
 import com.fungle.brume.anonymization.strategies.AnonymizationStrategy;
+import com.fungle.brume.anonymization.strategies.DateShiftStrategy;
 import com.fungle.brume.anonymization.strategies.FakeStrategy;
 import com.fungle.brume.anonymization.strategies.FpeIdStrategy;
 import com.fungle.brume.anonymization.strategies.FpeUuidStrategy;
@@ -30,13 +31,14 @@ public class StrategyResolver {
     /**
      * Creates a new {@code StrategyResolver} with all strategy implementations.
      *
-     * @param fakeStrategy     strategy for generating deterministic fake data
-     * @param fpeIdStrategy    strategy for format-preserving encryption of numeric IDs
-     * @param fpeUuidStrategy  strategy for deterministic UUID anonymization via HMAC
-     * @param maskStrategy     strategy for partial masking
-     * @param hashStrategy     strategy for one-way SHA-256 hashing
-     * @param nullifyStrategy  strategy that returns null
-     * @param keepStrategy     strategy that returns the value unchanged
+     * @param fakeStrategy       strategy for generating deterministic fake data
+     * @param fpeIdStrategy      strategy for format-preserving encryption of numeric IDs
+     * @param fpeUuidStrategy    strategy for deterministic UUID anonymization via HMAC
+     * @param maskStrategy       strategy for partial masking
+     * @param hashStrategy       strategy for one-way SHA-256 hashing
+     * @param nullifyStrategy    strategy that returns null
+     * @param keepStrategy       strategy that returns the value unchanged
+     * @param dateShiftStrategy  strategy for deterministic signed day shift on temporal columns
      */
     public StrategyResolver(
             FakeStrategy fakeStrategy,
@@ -45,15 +47,17 @@ public class StrategyResolver {
             MaskStrategy maskStrategy,
             HashStrategy hashStrategy,
             NullifyStrategy nullifyStrategy,
-            KeepStrategy keepStrategy) {
+            KeepStrategy keepStrategy,
+            DateShiftStrategy dateShiftStrategy) {
         this.strategies = Map.of(
-                Strategy.FAKE,     fakeStrategy,
-                Strategy.FPE_ID,   fpeIdStrategy,
-                Strategy.FPE_UUID, fpeUuidStrategy,
-                Strategy.MASK,     maskStrategy,
-                Strategy.HASH,     hashStrategy,
-                Strategy.NULLIFY,  nullifyStrategy,
-                Strategy.KEEP,     keepStrategy
+                Strategy.FAKE,       fakeStrategy,
+                Strategy.FPE_ID,     fpeIdStrategy,
+                Strategy.FPE_UUID,   fpeUuidStrategy,
+                Strategy.MASK,       maskStrategy,
+                Strategy.HASH,       hashStrategy,
+                Strategy.NULLIFY,    nullifyStrategy,
+                Strategy.KEEP,       keepStrategy,
+                Strategy.DATE_SHIFT, dateShiftStrategy
         );
     }
 

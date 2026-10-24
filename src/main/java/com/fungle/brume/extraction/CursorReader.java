@@ -14,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -49,6 +50,13 @@ public class CursorReader {
         }
         return Integer.compare(a.size(), b.size());
     };
+
+    /** Orders bare key values and composite key tuples alike (see {@link #streamWhereIn}). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static final Comparator<Object> KEY_COMPARATOR = (a, b) ->
+            a instanceof List && b instanceof List
+                    ? TUPLE_COMPARATOR.compare((List<Object>) a, (List<Object>) b)
+                    : ((Comparable) a).compareTo(b);
 
     private final JdbcTemplate sourceJdbcTemplate;
 
@@ -379,6 +387,77 @@ public class CursorReader {
             }
         });
         return tuples;
+    }
+
+    /**
+     * Streams the rows of {@code schema.table} whose {@code keyColumns} match one of
+     * {@code keys} — the FK-walk primitive of {@link FkTraversal}: it climbs to parents
+     * ({@code keyColumns} = referenced columns) and descends to children ({@code keyColumns}
+     * = FK columns). A key is the bare value for a single column and the ordered value
+     * {@code List} for a composite key (#81b / ADR-0042).
+     *
+     * <p>Keys are sorted before batching and each IN batch is ordered by {@code orderBy}, so a
+     * given key set always yields the same row sequence (#30b). {@code columns} projects the
+     * SELECT ({@code null} = every column) : {@code plan} only reads key columns (ADR-0050).
+     */
+    public void streamWhereIn(String schemaName, String tableName, List<String> keyColumns,
+                              Collection<?> keys, List<String> columns, List<String> orderBy,
+                              int fetchSize, Consumer<ExtractedRow> consumer) {
+        if (keys.isEmpty()) return;
+        List<Object> sorted = new ArrayList<>(keys);
+        try {
+            sorted.sort(KEY_COMPARATOR);
+        } catch (ClassCastException e) {
+            log.debug("streamWhereIn {}.{}: key values not mutually Comparable — row order may vary",
+                    schemaName, tableName);
+        }
+        boolean composite = keyColumns.size() > 1;
+        String keyTarget = composite
+                ? "(" + quoteAll(keyColumns) + ")"
+                : SqlIdentifiers.quote(keyColumns.getFirst());
+        String placeholder = composite
+                ? "(" + keyColumns.stream().map(_ -> "?").collect(Collectors.joining(", ")) + ")"
+                : "?";
+        String select = "SELECT " + (columns == null ? "*" : quoteAll(columns))
+                + " FROM " + SqlIdentifiers.quoteQualified(schemaName, tableName);
+        String order = orderBy.isEmpty() ? "" : " ORDER BY " + quoteAll(orderBy);
+        for (List<Object> batch : partition(sorted)) {
+            String sql = select + " WHERE " + keyTarget + " IN ("
+                    + String.join(", ", Collections.nCopies(batch.size(), placeholder)) + ")" + order;
+            executeStreamingQuery(sql, fetchSize, ps -> {
+                int i = 1;
+                for (Object key : batch) {
+                    if (composite) {
+                        for (Object v : (List<?>) key) ps.setObject(i++, v);
+                    } else {
+                        ps.setObject(i++, key);
+                    }
+                }
+            }, rs -> consumer.accept(mapRow(rs, tableName)));
+        }
+    }
+
+    /**
+     * Projected variant of {@link #streamRows(String, String, String, int, String, Consumer)} :
+     * reads only {@code columns}, ordered by {@code orderBy} — the narrow seed read of
+     * {@code plan} (ADR-0050).
+     */
+    public void streamRows(String schemaName, String tableName, String whereFilter,
+                           List<String> columns, List<String> orderBy, int fetchSize,
+                           Consumer<ExtractedRow> consumer) {
+        StringBuilder sql = new StringBuilder("SELECT ").append(quoteAll(columns))
+                .append(" FROM ").append(SqlIdentifiers.quoteQualified(schemaName, tableName));
+        if (whereFilter != null && !whereFilter.isBlank()) {
+            sql.append(" WHERE ").append(whereFilter);
+        }
+        if (!orderBy.isEmpty()) {
+            sql.append(" ORDER BY ").append(quoteAll(orderBy));
+        }
+        executeStreamingQuery(sql.toString(), fetchSize, ps -> {}, rs -> consumer.accept(mapRow(rs, tableName)));
+    }
+
+    private static String quoteAll(List<String> columns) {
+        return columns.stream().map(SqlIdentifiers::quote).collect(Collectors.joining(", "));
     }
 
     private void executeStreamingQuery(String sql, int fetchSize,

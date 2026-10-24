@@ -42,6 +42,7 @@ public class InsightGenerator {
      *   <li>Per-table: table absent from plan but present in execution</li>
      *   <li>Per-table: FK parents resolved — informational (no delta anomaly)</li>
      *   <li>Per-table: conflicts (rows skipped by {@code ON CONFLICT DO NOTHING})</li>
+     *   <li>Per-table: rows lost to a {@code UNIQUE} collision of pseudonymized values (#29a)</li>
      *   <li>Per-table: batch errors (JDBC batches that failed entirely)</li>
      *   <li>Global: N/M tables matched exactly</li>
      *   <li>Global: total FK parent rows resolved</li>
@@ -139,6 +140,15 @@ public class InsightGenerator {
                     + " doublon(s) ignoré(s) — ces lignes existent déjà en cible.", cat));
         }
 
+        // Rule 5b — rows lost : pseudonymized value collided on a UNIQUE constraint (#29a)
+        if (ts != null && ts.uniqueCollisions() > 0) {
+            insights.add(new Insight(Insight.Level.ERROR,
+                    row.table() + " : " + ts.uniqueCollisions()
+                    + " ligne(s) perdue(s) — leur valeur pseudonymisée entre en collision avec une autre"
+                    + " ligne sur une contrainte UNIQUE. Choisir une stratégie sans collision"
+                    + " (HASH, FPE, KEEP) pour la colonne unique concernée.", cat));
+        }
+
         // Rule 6 — batch errors (JDBC batches that failed entirely)
         if (ts != null && ts.batchErrors() > 0) {
             insights.add(new Insight(Insight.Level.ERROR,
@@ -186,7 +196,7 @@ public class InsightGenerator {
                 long pct = Math.round(dropped * 100.0 / totalActual);
                 insights.add(new Insight(Insight.Level.WARN,
                         dropped + " ligne(s) non inscrite(s) en cible sur " + totalActual
-                        + " (" + pct + " %) — conflits ou erreurs de lot.",
+                        + " (" + pct + " %) — conflits, collisions UNIQUE ou erreurs de lot.",
                         "Global"));
             }
         }

@@ -11,7 +11,9 @@
 # only the non-key `name` column is anonymized, to exercise composite parent rows flowing
 # through the anonymization pipeline.
 extraction:
-  fk_depth: 2
+  # Radius 1 (ADR-0050) : the declared rows and their parents — the subset these
+  # tests assert. A larger radius would also descend from those parents.
+  fk_depth: 1
   fetch_size: 25
   batch_size: 100
   tables:

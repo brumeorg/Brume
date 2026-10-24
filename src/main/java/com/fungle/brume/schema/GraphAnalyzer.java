@@ -107,8 +107,8 @@ public class GraphAnalyzer {
      * Returns all ancestor table names reachable from {@code tableName} by following
      * foreign key edges upward (child -> parent direction), up to {@code maxDepth} hops.
      *
-     * <p>Used by {@code FkParentResolver} in Phase 4 to pre-compute which parent tables
-     * need to be loaded to satisfy referential integrity.
+     * <p>The FK walk itself works on rows ({@code FkTraversal}, ADR-0050) ; this table-level
+     * view remains available for schema analysis.
      *
      * @param tableName  starting table (child)
      * @param schema     the analyzed database schema

@@ -52,9 +52,11 @@ class JsonPathProcessorTest {
         HashStrategy hashStrategy      = new HashStrategy(brumeProperties);
         NullifyStrategy nullifyStrategy = new NullifyStrategy();
         KeepStrategy keepStrategy      = new KeepStrategy();
+        com.fungle.brume.anonymization.strategies.DateShiftStrategy dateShiftStrategy =
+                new com.fungle.brume.anonymization.strategies.DateShiftStrategy(brumeProperties);
 
         StrategyResolver strategyResolver = new StrategyResolver(
-                fakeStrategy, fpeIdStrategy, fpeUuidStrategy, maskStrategy, hashStrategy, nullifyStrategy, keepStrategy);
+                fakeStrategy, fpeIdStrategy, fpeUuidStrategy, maskStrategy, hashStrategy, nullifyStrategy, keepStrategy, dateShiftStrategy);
         SemanticKeyResolver semanticKeyResolver = new SemanticKeyResolver();
         ObjectMapper objectMapper = new ObjectMapper();
         processor = new JsonPathProcessor(objectMapper);
@@ -308,7 +310,8 @@ class JsonPathProcessorTest {
                 new com.fungle.brume.anonymization.strategies.MaskStrategy(),
                 new com.fungle.brume.anonymization.strategies.HashStrategy(brumeProperties),
                 new com.fungle.brume.anonymization.strategies.NullifyStrategy(),
-                new com.fungle.brume.anonymization.strategies.KeepStrategy());
+                new com.fungle.brume.anonymization.strategies.KeepStrategy(),
+                new com.fungle.brume.anonymization.strategies.DateShiftStrategy(brumeProperties));
         AnonymizationEngine engineWithSpy = new AnonymizationEngine(strategies, dict, spyResolver, processor);
 
         String json = "{\"email\":\"alice@test.com\"}";
@@ -346,7 +349,8 @@ class JsonPathProcessorTest {
                 new com.fungle.brume.anonymization.strategies.MaskStrategy(),
                 new com.fungle.brume.anonymization.strategies.HashStrategy(brumeProperties),
                 new com.fungle.brume.anonymization.strategies.NullifyStrategy(),
-                new com.fungle.brume.anonymization.strategies.KeepStrategy());
+                new com.fungle.brume.anonymization.strategies.KeepStrategy(),
+                new com.fungle.brume.anonymization.strategies.DateShiftStrategy(brumeProperties));
         AnonymizationEngine engineWithFreshDict = new AnonymizationEngine(
                 strategies, freshDict, new SemanticKeyResolver(), processor);
 

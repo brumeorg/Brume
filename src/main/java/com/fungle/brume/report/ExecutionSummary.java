@@ -22,6 +22,8 @@ import java.util.List;
  * @param runtimeContext   meta-info (Brume version, config path, faker locale, DDL mode)
  * @param pkStructure      source-schema primary-key structure (composite / absent PK counts, #81a)
  * @param startedAt        wall-clock instant at which the {@link ExecutionReport} was created
+ * @param orphanReferences FK references left dangling by {@code orphan_policy: ALLOW_ORPHANS}
+ *                         (ADR-0050) ; empty otherwise
  */
 public record ExecutionSummary(
         String sourceSchema,
@@ -36,7 +38,8 @@ public record ExecutionSummary(
         DdlExecutionResult ddlExecution,
         BrumeRuntimeContext runtimeContext,
         PkStructureStats pkStructure,
-        Instant startedAt
+        Instant startedAt,
+        List<OrphanReference> orphanReferences
 ) {
 
     public ExecutionSummary {
@@ -45,6 +48,27 @@ public record ExecutionSummary(
         ddlExecution = ddlExecution == null ? DdlExecutionResult.empty() : ddlExecution;
         runtimeContext = runtimeContext == null ? BrumeRuntimeContext.empty() : runtimeContext;
         pkStructure = pkStructure == null ? PkStructureStats.empty() : pkStructure;
+        orphanReferences = orphanReferences == null ? List.of() : List.copyOf(orphanReferences);
+    }
+
+    public ExecutionSummary(
+            String sourceSchema,
+            String targetSchema,
+            boolean success,
+            String failureCause,
+            PhaseTimings timings,
+            List<TableStats> tableStats,
+            List<StrategyUsage> strategyUsages,
+            SubstitutionDictStats substitutionDict,
+            HeapStats heap,
+            DdlExecutionResult ddlExecution,
+            BrumeRuntimeContext runtimeContext,
+            PkStructureStats pkStructure,
+            Instant startedAt
+    ) {
+        this(sourceSchema, targetSchema, success, failureCause, timings,
+                tableStats, strategyUsages, substitutionDict, heap,
+                ddlExecution, runtimeContext, pkStructure, startedAt, List.of());
     }
 
     public ExecutionSummary(
@@ -121,9 +145,8 @@ public record ExecutionSummary(
     }
 
     /**
-     * Returns the total number of rows extracted from the source, including rows added
-     * by {@code FkParentResolver} and {@code FkChildResolver} to satisfy foreign-key
-     * constraints.
+     * Returns the total number of rows extracted from the source, including the FK parents
+     * and children added by the FK walk ({@code FkTraversal}, ADR-0050).
      *
      * @return sum of {@code extracted + fkParents + fkChildren} across all tables
      */
@@ -145,13 +168,26 @@ public record ExecutionSummary(
     }
 
     /**
-     * Returns the total number of rows silently ignored by {@code ON CONFLICT DO NOTHING}.
+     * Returns the total number of rows ignored by {@code ON CONFLICT DO NOTHING} because their
+     * primary key was already in the target (re-run, resume).
      *
      * @return sum of {@code conflicts} across all tables
      */
     public long totalConflicts() {
         return tableStats.stream()
                 .mapToLong(TableStats::conflicts)
+                .sum();
+    }
+
+    /**
+     * Returns the total number of rows lost to a {@code UNIQUE} collision of their
+     * pseudonymized values (#29a) — not written to the target.
+     *
+     * @return sum of {@code uniqueCollisions} across all tables
+     */
+    public long totalUniqueCollisions() {
+        return tableStats.stream()
+                .mapToLong(TableStats::uniqueCollisions)
                 .sum();
     }
 
@@ -168,13 +204,13 @@ public record ExecutionSummary(
 
     /**
      * Returns {@code true} if there are any rows that were not written to the target,
-     * either due to conflicts or batch errors.
+     * either due to conflicts, {@code UNIQUE} collisions or batch errors.
      *
-     * @return {@code true} if {@link #totalConflicts()} {@code > 0} or
-     *         {@link #totalBatchErrors()} {@code > 0}
+     * @return {@code true} if {@link #totalConflicts()}, {@link #totalUniqueCollisions()} or
+     *         {@link #totalBatchErrors()} is {@code > 0}
      */
     public boolean hasWarnings() {
-        return totalConflicts() > 0 || totalBatchErrors() > 0;
+        return totalConflicts() > 0 || totalUniqueCollisions() > 0 || totalBatchErrors() > 0;
     }
 }
 

@@ -1,7 +1,7 @@
 {
-  "schemaVersion" : "1.0",
+  "schemaVersion" : "2.0",
   "datafakerVersion" : "2.4.0",
-  "policy" : "V1.0 contract. Modifying any 'expected' here is a breaking change for V1.x — requires a MAJOR SemVer bump. To regenerate after an intentional change: REGEN_DETERMINISM_FIXTURES=1 mvn test -Dtest=DeterminismRegressionTest",
+  "policy" : "V2.0 contract (V1.0 → V2.0 : FAKE PHONE digits drawn from the seed, ADR-0056). Modifying any 'expected' here is a breaking change for V2.x — requires a MAJOR SemVer bump. To regenerate after an intentional change: REGEN_DETERMINISM_FIXTURES=1 mvn test -Dtest=DeterminismRegressionTest",
   "config" : {
     "hmacSecret" : "test-hmac-secret-deterministic-v1.0-DO-NOT-CHANGE",
     "hmacAlgorithm" : "HmacSHA256",
@@ -102,7 +102,7 @@
     },
     "expected" : {
       "type" : "string",
-      "value" : "05 92 62 39 19"
+      "value" : "08 37 30 90 45"
     }
   }, {
     "id" : "fake-phone-intl",
@@ -114,7 +114,7 @@
     },
     "expected" : {
       "type" : "string",
-      "value" : "02 19 72 99 01"
+      "value" : "04 67 73 27 83"
     }
   }, {
     "id" : "fake-address-typical",

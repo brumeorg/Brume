@@ -4,6 +4,7 @@ import com.fungle.brume.schema.model.ColumnMetadata;
 import com.fungle.brume.schema.model.DatabaseSchema;
 import com.fungle.brume.schema.model.ForeignKey;
 import com.fungle.brume.schema.model.TableMetadata;
+import com.fungle.brume.schema.model.UniqueKey;
 import com.fungle.brume.timeout.BoundedQueryExecutor;
 import com.fungle.brume.util.SqlIdentifiers;
 import org.slf4j.Logger;
@@ -15,8 +16,10 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Queries a PostgreSQL database's {@code information_schema} to build a {@link DatabaseSchema}
@@ -41,11 +44,20 @@ public class SchemaAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(SchemaAnalyzer.class);
 
+    // Tables only : ordinary ('r') and partitioned ('p'). information_schema.columns also
+    // lists views and foreign tables, which scan used to propose and execute could not
+    // write into (#126c). Materialized views are not in information_schema at all.
+    // Partitions are hidden (#71c) : the partitioned table is the one logical table, read
+    // and written as a whole — PostgreSQL routes each row to its partition.
     private static final String COLUMNS_SQL = """
-            SELECT table_name, column_name, data_type, is_nullable
-            FROM information_schema.columns
-            WHERE table_schema = ?
-            ORDER BY table_name, ordinal_position
+            SELECT c.table_name, c.column_name, c.data_type, c.is_nullable, c.character_maximum_length
+            FROM information_schema.columns c
+            JOIN pg_namespace n ON n.nspname = c.table_schema
+            JOIN pg_class r     ON r.relnamespace = n.oid AND r.relname = c.table_name
+            WHERE c.table_schema = ?
+              AND r.relkind IN ('r', 'p')
+              AND NOT r.relispartition
+            ORDER BY c.table_name, c.ordinal_position
             """;
 
     private static final String PRIMARY_KEYS_SQL = """
@@ -59,27 +71,69 @@ public class SchemaAnalyzer {
             ORDER BY kcu.table_name, kcu.ordinal_position
             """;
 
+    // Columns unique on their own : single-key-column unique indexes (PK, UNIQUE constraint,
+    // CREATE UNIQUE INDEX), expression indexes excluded (#29a).
+    private static final String UNIQUE_COLUMNS_SQL = """
+            SELECT t.relname AS table_name, a.attname AS column_name
+            FROM pg_index ix
+            JOIN pg_class t      ON t.oid = ix.indrelid
+            JOIN pg_namespace ns ON ns.oid = t.relnamespace
+            JOIN pg_attribute a  ON a.attrelid = t.oid AND a.attnum = ix.indkey[0]
+            WHERE ns.nspname = ?
+              AND ix.indisunique
+              AND ix.indnkeyatts = 1
+              AND ix.indexprs IS NULL
+            ORDER BY t.relname, a.attname
+            """;
+
+    // Every unique index whose uniqueness can be checked from the values (#29b) : PK included,
+    // composite or not ; expression and partial indexes excluded. indnullsnotdistinct only
+    // exists from PostgreSQL 15 : read through to_jsonb so older servers get false.
+    private static final String UNIQUE_KEYS_SQL = """
+            SELECT t.relname AS table_name, ix.indexrelid AS index_id, a.attname AS column_name,
+                   COALESCE((to_jsonb(ix) ->> 'indnullsnotdistinct')::boolean, false) AS nulls_not_distinct
+            FROM pg_index ix
+            JOIN pg_class t      ON t.oid = ix.indrelid
+            JOIN pg_namespace ns ON ns.oid = t.relnamespace
+            JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) ON k.ord <= ix.indnkeyatts
+            JOIN pg_attribute a  ON a.attrelid = t.oid AND a.attnum = k.attnum
+            WHERE ns.nspname = ?
+              AND ix.indisunique
+              AND ix.indexprs IS NULL
+              AND ix.indpred IS NULL
+              AND t.relkind IN ('r', 'p')
+              AND NOT t.relispartition
+            ORDER BY t.relname, ix.indexrelid, k.ord
+            """;
+
     // pg_catalog rather than information_schema: the latter joins key_column_usage and
     // constraint_column_usage with no ordinal correlation, producing a cross product on a
     // composite FK (mispaired columns, over-fetch — ADR-0042). conkey/confkey are ordinal-
     // aligned arrays; unnest WITH ORDINALITY pairs child column i with parent column i exactly.
+    // Partitions (#71c) : both ends of a FK are lifted to the root of their partition tree —
+    // a FK declared partition by partition (Pagila style) becomes one FK of the partitioned
+    // table once loadForeignKeys removes the duplicates. The copies PostgreSQL clones onto
+    // each partition from a FK declared on the partitioned table (conparentid <> 0) are skipped.
     private static final String FOREIGN_KEYS_SQL = """
             SELECT
                 con.conname    AS constraint_name,
-                child.relname  AS from_table,
+                child.relname  AS constraint_table,
+                fromroot.relname AS from_table,
                 fcol.attname   AS from_column,
-                parent.relname AS to_table,
+                toroot.relname AS to_table,
                 pcol.attname   AS to_column
             FROM pg_constraint con
-            JOIN pg_class child   ON child.oid  = con.conrelid
-            JOIN pg_class parent  ON parent.oid = con.confrelid
-            JOIN pg_namespace ns  ON ns.oid     = con.connamespace
+            JOIN pg_class child    ON child.oid    = con.conrelid
+            JOIN pg_class fromroot ON fromroot.oid = COALESCE(pg_partition_root(con.conrelid)::oid, con.conrelid)
+            JOIN pg_class toroot   ON toroot.oid   = COALESCE(pg_partition_root(con.confrelid)::oid, con.confrelid)
+            JOIN pg_namespace ns   ON ns.oid       = con.connamespace
             JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS cols(child_attnum, parent_attnum, ord) ON true
             JOIN pg_attribute fcol ON fcol.attrelid = con.conrelid  AND fcol.attnum = cols.child_attnum
             JOIN pg_attribute pcol ON pcol.attrelid = con.confrelid AND pcol.attnum = cols.parent_attnum
             WHERE con.contype = 'f'
+              AND con.conparentid = 0
               AND ns.nspname  = ?
-            ORDER BY child.relname, con.conname, cols.ord
+            ORDER BY fromroot.relname, child.relname, con.conname, cols.ord
             """;
 
     private final JdbcTemplate sourceJdbcTemplate;
@@ -123,7 +177,15 @@ public class SchemaAnalyzer {
         boundedQueryExecutor.executeVoid("SchemaAnalyzer.loadPrimaryKeys", jdbc ->
                 pkByTable.putAll(loadPrimaryKeys(jdbc, schemaName)));
 
-        return assemble(schemaName, columnsByTable, fksByTable, pkByTable);
+        Map<String, Set<String>> uniqueByTable = new LinkedHashMap<>();
+        boundedQueryExecutor.executeVoid("SchemaAnalyzer.loadUniqueColumns", jdbc ->
+                uniqueByTable.putAll(loadUniqueColumns(jdbc, schemaName)));
+
+        Map<String, List<UniqueKey>> keysByTable = new LinkedHashMap<>();
+        boundedQueryExecutor.executeVoid("SchemaAnalyzer.loadUniqueKeys", jdbc ->
+                keysByTable.putAll(loadUniqueKeys(jdbc, schemaName)));
+
+        return assemble(schemaName, columnsByTable, fksByTable, pkByTable, uniqueByTable, keysByTable);
     }
 
     /**
@@ -146,7 +208,9 @@ public class SchemaAnalyzer {
         return assemble(schemaName,
                 loadColumns(jdbcTemplate, schemaName),
                 loadForeignKeys(jdbcTemplate, schemaName),
-                loadPrimaryKeys(jdbcTemplate, schemaName));
+                loadPrimaryKeys(jdbcTemplate, schemaName),
+                loadUniqueColumns(jdbcTemplate, schemaName),
+                loadUniqueKeys(jdbcTemplate, schemaName));
     }
 
     // -------------------------------------------------------------------------
@@ -156,7 +220,9 @@ public class SchemaAnalyzer {
     private DatabaseSchema assemble(String schemaName,
                                     Map<String, List<ColumnMetadata>> columnsByTable,
                                     Map<String, List<ForeignKey>> fksByTable,
-                                    Map<String, List<String>> pkByTable) {
+                                    Map<String, List<String>> pkByTable,
+                                    Map<String, Set<String>> uniqueByTable,
+                                    Map<String, List<UniqueKey>> keysByTable) {
         // LinkedHashMap to preserve the alphabetic table order set by the SQL ORDER BY
         // — propagates a deterministic iteration order downstream to GraphAnalyzer
         // (topological sort visit order), ChunkedTableProcessor and finally SqlFileSink
@@ -167,7 +233,9 @@ public class SchemaAnalyzer {
             List<ForeignKey> fks = fksByTable.getOrDefault(tableName, List.of());
             // Empty when the table has no PK ; size ≥ 2 for a composite PK (#81b / ADR-0042).
             List<String> pk = pkByTable.getOrDefault(tableName, List.of());
-            tables.put(tableName, new TableMetadata(tableName, columns, fks, pk));
+            Set<String> unique = uniqueByTable.getOrDefault(tableName, Set.of());
+            List<UniqueKey> keys = keysByTable.getOrDefault(tableName, List.of());
+            tables.put(tableName, new TableMetadata(tableName, columns, fks, pk, unique, keys));
         }
         log.info("Schema '{}' analyzed: {} table(s)", schemaName, tables.size());
         // Wrap rather than Map.copyOf — the latter returns a hash-based map whose
@@ -207,8 +275,9 @@ public class SchemaAnalyzer {
             String column = rs.getString("column_name");
             String dataType = rs.getString("data_type");
             boolean nullable = "YES".equalsIgnoreCase(rs.getString("is_nullable"));
+            Integer maxLength = (Integer) rs.getObject("character_maximum_length");
             result.computeIfAbsent(table, _ -> new ArrayList<>())
-                    .add(new ColumnMetadata(column, dataType, nullable));
+                    .add(new ColumnMetadata(column, dataType, nullable, maxLength));
         }, schemaName);
         return result;
     }
@@ -225,6 +294,33 @@ public class SchemaAnalyzer {
         return pkColumns;
     }
 
+    private static Map<String, Set<String>> loadUniqueColumns(JdbcTemplate jdbc, String schemaName) {
+        Map<String, Set<String>> unique = new LinkedHashMap<>();
+        jdbc.query(UNIQUE_COLUMNS_SQL, rs -> {
+            unique.computeIfAbsent(rs.getString("table_name"), _ -> new LinkedHashSet<>())
+                    .add(rs.getString("column_name"));
+        }, schemaName);
+        return unique;
+    }
+
+    private static Map<String, List<UniqueKey>> loadUniqueKeys(JdbcTemplate jdbc, String schemaName) {
+        // One entry per index, its columns in index order (UNIQUE_KEYS_SQL's ORDER BY).
+        Map<Long, String> tableOfIndex = new LinkedHashMap<>();
+        Map<Long, List<String>> columnsOfIndex = new LinkedHashMap<>();
+        Map<Long, Boolean> nullsNotDistinct = new LinkedHashMap<>();
+        jdbc.query(UNIQUE_KEYS_SQL, rs -> {
+            long index = rs.getLong("index_id");
+            tableOfIndex.put(index, rs.getString("table_name"));
+            nullsNotDistinct.put(index, rs.getBoolean("nulls_not_distinct"));
+            columnsOfIndex.computeIfAbsent(index, _ -> new ArrayList<>()).add(rs.getString("column_name"));
+        }, schemaName);
+        Map<String, List<UniqueKey>> result = new LinkedHashMap<>();
+        columnsOfIndex.forEach((index, columns) -> result
+                .computeIfAbsent(tableOfIndex.get(index), _ -> new ArrayList<>())
+                .add(new UniqueKey(columns, nullsNotDistinct.get(index))));
+        return result;
+    }
+
     private static Map<String, List<ForeignKey>> loadForeignKeys(JdbcTemplate jdbc, String schemaName) {
         // Accumulate the ordinal-ordered (from,to) column pairs per (table, constraint) so a
         // composite FK collapses into a single ForeignKey with positionally-aligned column
@@ -232,21 +328,27 @@ public class SchemaAnalyzer {
         Map<String, FkAccumulator> byConstraint = new LinkedHashMap<>();
         jdbc.query(FOREIGN_KEYS_SQL, rs -> {
             String constraint = rs.getString("constraint_name");
+            String constraintTable = rs.getString("constraint_table");
             String fromTable = rs.getString("from_table");
             String fromColumn = rs.getString("from_column");
             String toTable = rs.getString("to_table");
             String toColumn = rs.getString("to_column");
-            // Constraint names are unique per table, not per schema — key by table + constraint.
-            byConstraint.computeIfAbsent(fromTable + ' ' + constraint,
+            // Constraint names are unique per table, not per schema — key by the table that
+            // declares the constraint (a partition, before lifting) + constraint name.
+            byConstraint.computeIfAbsent(constraintTable + '\0' + constraint,
                             _ -> new FkAccumulator(fromTable, toTable))
                     .add(fromColumn, toColumn);
         }, schemaName);
 
         Map<String, List<ForeignKey>> result = new LinkedHashMap<>();
         for (FkAccumulator acc : byConstraint.values()) {
-            result.computeIfAbsent(acc.fromTable, _ -> new ArrayList<>())
-                    .add(new ForeignKey(acc.fromTable, List.copyOf(acc.fromColumns),
-                            acc.toTable, List.copyOf(acc.toColumns)));
+            ForeignKey fk = new ForeignKey(acc.fromTable, List.copyOf(acc.fromColumns),
+                    acc.toTable, List.copyOf(acc.toColumns));
+            // One FK per partition, all lifted to the same partitioned table : keep one (#71c).
+            List<ForeignKey> fks = result.computeIfAbsent(acc.fromTable, _ -> new ArrayList<>());
+            if (!fks.contains(fk)) {
+                fks.add(fk);
+            }
         }
         return result;
     }

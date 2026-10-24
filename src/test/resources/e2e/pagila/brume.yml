@@ -1,0 +1,59 @@
+# brume.yml — curated configuration of PagilaE2E (ADR-0051)
+#
+# Seed : the rentals of August 2022 (~5 800 rows). fk_depth 1 adds their customers, staff,
+# inventory and payments (children, partitioned table) ; KEEP_PARENTS climbs to films,
+# stores, addresses, cities, countries. Only the parent side of customer_id is declared :
+# FPE_ID must reach rental.customer_id and payment.customer_id (all partitions).
+
+extraction:
+  fk_depth: 1
+  orphan_policy: KEEP_PARENTS
+  tables:
+    - table: rental
+      filter: "rental_date >= '2022-08-01' AND rental_date < '2022-09-01'"
+
+anonymization:
+  tables:
+    - table: customer
+      columns:
+        - name: customer_id
+          strategy: FPE_ID
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+
+    - table: staff
+      columns:
+        - name: first_name
+          strategy: FAKE
+          type: FIRST_NAME
+        - name: last_name
+          strategy: FAKE
+          type: LAST_NAME
+        - name: email
+          strategy: FAKE
+          type: EMAIL
+        - name: username
+          strategy: HASH
+        - name: password
+          strategy: NULLIFY
+        - name: picture
+          strategy: NULLIFY
+
+    - table: address
+      columns:
+        - name: address
+          strategy: FAKE
+          type: ADDRESS
+        - name: phone
+          strategy: MASK
+          type: PHONE
+        - name: postal_code
+          strategy: MASK
+          type: ADDRESS

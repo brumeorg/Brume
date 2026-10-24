@@ -281,7 +281,9 @@ public class SchemaReplicator {
                 "--schema-only",
                 "--no-owner",
                 "--no-privileges",
-                "-n", schema,
+                // -n takes a pattern : unquoted, it is folded to lower case and '*', '?', '.'
+                // are special. Quoted, it matches the schema name exactly (#26c).
+                "-n", SqlIdentifiers.quote(schema),
                 "-h", parsed.host(),
                 "-p", String.valueOf(parsed.port()),
                 "-U", user,
@@ -290,7 +292,7 @@ public class SchemaReplicator {
 
         log.info("Lancement pg_dump : {}", String.join(" ", cmd));
 
-        ProcessBuilder pb = new ProcessBuilder(cmd);
+        ProcessBuilder pb = new ProcessBuilder(SubprocessArgs.portable(cmd));
         pb.environment().put("PGPASSWORD", password);
         // Propagate the JDBC URL's sslmode to pg_dump via libpq env (ADR-0021 Q4) so
         // pg_dump doesn't connect in the clear while Hikari negotiates SSL.

@@ -37,9 +37,8 @@ public class ConfigValidator {
     private static final Logger log = LoggerFactory.getLogger(ConfigValidator.class);
 
     private static final String IDENTIFIER_RULE_HINT =
-            "Table and column names must match the PostgreSQL unquoted-identifier rules: "
-                    + "letters, digits and underscores, starting with a letter or underscore "
-                    + "(quote them with double-quotes in the config if you must keep mixed case).";
+            "Write table and column names exactly as stored in PostgreSQL (case, accents and "
+                    + "spaces included, without double quotes) : 1 to 63 bytes in UTF-8, no NUL character.";
 
     /**
      * Validates the given configuration.
@@ -186,6 +185,61 @@ public class ConfigValidator {
                                 + "fields to anonymize (e.g. '- path: $.email\\n  type: EMAIL\\n  "
                                 + "strategy: FAKE').");
             }
+        }
+
+        validateDateRange(col, ref);
+    }
+
+    /**
+     * Validates {@code min_year} / {@code max_year} (#45b).
+     *
+     * <p>Rules:
+     * <ul>
+     *   <li>Bounds are only accepted when {@code strategy = FAKE} and {@code type = DATE}.</li>
+     *   <li>Both bounds must be in {@code [1900, 2100]} — well before PG's {@code date}
+     *       support edges and after the first realistic DOB we'd anonymize.</li>
+     *   <li>{@code min < max}. Equal bounds would collapse the range to a single day.</li>
+     *   <li>Omitting both is legal — falls back to the adult-DOB default anchor (1935-2008).</li>
+     * </ul>
+     */
+    private void validateDateRange(ColumnConfig col, String ref) {
+        Integer min = col.minYear();
+        Integer max = col.maxYear();
+        if (min == null && max == null) {
+            return;
+        }
+
+        boolean isFakeDate = col.strategy() == Strategy.FAKE && col.type() == SemanticType.DATE;
+        if (!isFakeDate) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_DATE_RANGE_INVALID,
+                    "Column '" + ref + "' declares min_year/max_year but strategy is '"
+                            + col.strategy() + "' with type '" + col.type() + "'",
+                    "min_year/max_year are only read when strategy=FAKE and type=DATE. "
+                            + "Remove the bounds, or switch to FAKE+DATE if you want a custom "
+                            + "year range.");
+        }
+        if (min == null || max == null) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_DATE_RANGE_INVALID,
+                    "Column '" + ref + "' declares only one of min_year/max_year — both must "
+                            + "be set together",
+                    "Either declare both bounds (e.g. 'min_year: 2008' + 'max_year: 2026') or "
+                            + "omit both to use the adult-DOB default (1935-2008).");
+        }
+        if (min < 1900 || min > 2100 || max < 1900 || max > 2100) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_DATE_RANGE_INVALID,
+                    "Column '" + ref + "' has min_year/max_year out of [1900, 2100] (got "
+                            + min + "/" + max + ")",
+                    "Pick a range inside [1900, 2100]. If your dataset genuinely needs older "
+                            + "or future dates, open an issue — we'll widen the bounds.");
+        }
+        if (min >= max) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_DATE_RANGE_INVALID,
+                    "Column '" + ref + "' has min_year (" + min + ") >= max_year (" + max + ")",
+                    "min_year must be strictly less than max_year (max_year is exclusive).");
         }
     }
 }

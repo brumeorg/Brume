@@ -41,6 +41,15 @@ public enum SemanticType {
      * using the {@code json_paths} configuration to anonymize individual nested fields.
      * Must be combined with a non-empty {@code jsonPaths} list in {@link ColumnConfig}.
      */
-    JSONB
+    JSONB,
+
+    /**
+     * Date — produces a deterministic ISO date string in a plausible adult DOB range
+     * (anchored 1935-2007, so 18-91 years old on 2026 scans). Combined with
+     * {@link Strategy#FAKE}, mainly intended for {@code birthday}/{@code dob} columns.
+     * Written back via {@code Types.OTHER} inference, works for {@code date} and
+     * {@code timestamp} target types.
+     */
+    DATE
 }
 
