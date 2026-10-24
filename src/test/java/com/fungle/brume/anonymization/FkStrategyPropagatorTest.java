@@ -224,15 +224,16 @@ class FkStrategyPropagatorTest {
     }
 
     // -------------------------------------------------------------------------
-    // FAKE strategy on referenced PK
+    // FAKE strategy along a foreign key (ADR-0057)
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("rejects FAKE on referenced PK when no linked_columns covers the FK")
-    void rejectsFakeOnReferencedPkWithoutLinkedColumns() {
+    @DisplayName("#70d — FAKE on a referenced column propagates to the FK column without linked_columns, "
+            + "type and year bounds included (was CONFIG_FK_PROPAGATION_FAKE_REQUIRES_LINK)")
+    void propagatesFakeAlongTheForeignKeyWithoutLinkedColumns() {
         AnonymizerConfig config = configWith(
                 List.of(),
-                tableRules("users", col("email", Strategy.FAKE, SemanticType.EMAIL))
+                tableRules("users", new ColumnConfig("email", Strategy.FAKE, SemanticType.DATE, null, 2008, 2026))
         );
         DatabaseSchema schema = schema(
                 table("users", "email"), // pretend email is the PK for this scenario
@@ -240,15 +241,35 @@ class FkStrategyPropagatorTest {
                         fk("audit_logs", "user_email", "users", "email"))
         );
 
-        assertThatThrownBy(() -> propagator.propagate(config, schema))
-                .isInstanceOf(ConfigurationException.class)
-                .hasMessageContaining("FAKE")
-                .hasMessageContaining("linked_columns")
-                .hasMessageContaining("audit_logs.user_email");
+        AnonymizerConfig propagated = propagator.propagate(config, schema);
+
+        assertThat(findTable(propagated, "audit_logs").columns())
+                .singleElement()
+                .isEqualTo(new ColumnConfig("user_email", Strategy.FAKE, SemanticType.DATE, null, 2008, 2026));
     }
 
     @Test
-    @DisplayName("accepts FAKE on referenced PK when a linked_columns covers both endpoints")
+    @DisplayName("rejects FAKE declared on both ends of a FK with different year bounds — the dates would diverge")
+    void rejectsFakeWithDivergingYearBoundsInAClass() {
+        AnonymizerConfig config = configWith(
+                List.of(),
+                tableRules("users", new ColumnConfig("email", Strategy.FAKE, SemanticType.DATE, null, 2008, 2026)),
+                tableRules("audit_logs", new ColumnConfig("user_email", Strategy.FAKE, SemanticType.DATE, null, 1935, 2008))
+        );
+        DatabaseSchema schema = schema(
+                table("users", "email"),
+                tableWithFk("audit_logs", "id",
+                        fk("audit_logs", "user_email", "users", "email"))
+        );
+
+        assertThatThrownBy(() -> propagator.propagate(config, schema))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("conflicting strategies")
+                .hasMessageContaining("[2008..2026]");
+    }
+
+    @Test
+    @DisplayName("a linked_columns entry covering a FK pair is still accepted (redundant, harmless)")
     void acceptsFakeWhenLinkedColumnsCovers() {
         AnonymizerConfig config = configWith(
                 List.of(new LinkedColumnsConfig("user_email", List.of(

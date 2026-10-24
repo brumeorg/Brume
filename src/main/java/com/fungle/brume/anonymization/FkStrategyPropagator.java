@@ -4,8 +4,6 @@ import com.fungle.brume.config.ConfigurationException;
 import com.fungle.brume.config.model.AnonymizationConfig;
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
-import com.fungle.brume.config.model.ColumnReference;
-import com.fungle.brume.config.model.LinkedColumnsConfig;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
 import com.fungle.brume.error.BrumeErrorCode;
@@ -20,10 +18,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -50,11 +48,15 @@ import java.util.TreeSet;
  * FKs and no "root" PK exists.
  *
  * <p><strong>Eligible strategies for automatic propagation</strong> (deterministic, value-only —
- * no dictionary required for cross-table consistency):
+ * the same value gives the same output in every column):
  * <ul>
  *   <li>{@link Strategy#FPE_ID}</li>
  *   <li>{@link Strategy#FPE_UUID}</li>
  *   <li>{@link Strategy#HASH}</li>
+ *   <li>{@link Strategy#FAKE} (ADR-0057) — the fake is drawn from the value, the type and the
+ *       secret only, so no {@code linked_columns} entry is needed along a SQL foreign key ;
+ *       {@code linked_columns} remains for columns that share values without a declared FK.
+ *       The propagated rule carries the type and the {@code min_year} / {@code max_year} bounds.</li>
  * </ul>
  *
  * <p><strong>Conflict (Q2 — fail-fast).</strong> If two columns of the same class are declared
@@ -69,9 +71,9 @@ import java.util.TreeSet;
  * <ul>
  *   <li>{@code NULLIFY}/{@code MASK} on a column referenced by a FK that is <em>not</em> also
  *       opted out → rejected (would orphan child rows or produce collisions in target).</li>
- *   <li>{@code FAKE} on any column of a multi-column class → requires a {@code linked_columns}
- *       entry covering every pair in the class (otherwise the substitution dictionary returns
- *       diverging fake values for the same logical id).</li>
+ *   <li>{@code FAKE} declared on several columns of a class with a different type or different
+ *       {@code min_year} / {@code max_year} bounds → rejected as a conflict (the values would
+ *       diverge).</li>
  * </ul>
  *
  * <p>See ADR-0044 for the full decision record and ADR-0023 § Q1 for the unidirectional
@@ -91,7 +93,6 @@ public class FkStrategyPropagator {
     public AnonymizerConfig propagate(AnonymizerConfig config, DatabaseSchema schema) {
         AnonymizationConfig anonymization = config.anonymization();
         Map<ColumnKey, ColumnConfig> declared = indexRules(anonymization);
-        Set<SemanticKeyPair> linkedPairs = indexLinkedColumns(anonymization);
 
         // ADR-0023 direction-specific guard preserved: NULLIFY/MASK on the referenced PK side
         // breaks integrity unless the referencing FK side is also opted out (NULLIFY). This
@@ -112,20 +113,15 @@ public class FkStrategyPropagator {
             }
         }
 
-        // Group declared rules by their class root. NULLIFY rules are tracked separately —
-        // they are per-column opt-outs validated above by the per-FK guard, not class-driving
-        // (Q3). KEEP stays in the active set so an explicit "keep this FK as source" while
-        // its sibling is anonymized is detected as a conflict (Q2).
+        // Group declared rules by their class root. NULLIFY rules are per-column opt-outs
+        // validated above by the per-FK guard, not class-driving (Q3). KEEP stays in the
+        // active set so an explicit "keep this FK as source" while its sibling is anonymized
+        // is detected as a conflict (Q2).
         Map<ColumnKey, List<ColumnKey>> activeByClass = new HashMap<>();
-        Map<ColumnKey, List<ColumnKey>> nullifyByClass = new HashMap<>();
         for (Map.Entry<ColumnKey, ColumnConfig> entry : declared.entrySet()) {
             ColumnKey col = entry.getKey();
-            Strategy strategy = entry.getValue().strategy();
-            ColumnKey root = classes.find(col);
-            if (strategy == Strategy.NULLIFY) {
-                nullifyByClass.computeIfAbsent(root, k -> new ArrayList<>()).add(col);
-            } else {
-                activeByClass.computeIfAbsent(root, k -> new ArrayList<>()).add(col);
+            if (entry.getValue().strategy() != Strategy.NULLIFY) {
+                activeByClass.computeIfAbsent(classes.find(col), k -> new ArrayList<>()).add(col);
             }
         }
 
@@ -134,8 +130,6 @@ public class FkStrategyPropagator {
         for (Map.Entry<ColumnKey, List<ColumnKey>> entry : activeByClass.entrySet()) {
             ColumnKey root = entry.getKey();
             List<ColumnKey> activeColumns = entry.getValue();
-            Set<ColumnKey> nullifyColumns = new HashSet<>(
-                    nullifyByClass.getOrDefault(root, List.of()));
             ColumnConfig classRule = resolveClassRule(activeColumns, declared);
             Strategy classStrategy = classRule.strategy();
             if (classStrategy == Strategy.KEEP) {
@@ -145,10 +139,6 @@ public class FkStrategyPropagator {
             }
             List<ColumnKey> classMembers = classes.membersOf(root);
 
-            if (classStrategy == Strategy.FAKE) {
-                validateFakeLinkedColumns(classMembers, nullifyColumns, linkedPairs, classRule);
-            }
-
             if (!DETERMINISTIC_STRATEGIES.contains(classStrategy)
                     && classStrategy != Strategy.FAKE) {
                 // MASK / any strategy outside the propagation allowlist applies to the
@@ -157,8 +147,8 @@ public class FkStrategyPropagator {
             }
             for (ColumnKey member : classMembers) {
                 if (declared.containsKey(member)) continue;
-                ColumnConfig propagated = new ColumnConfig(
-                        member.column(), classStrategy, classRule.type(), null);
+                ColumnConfig propagated = new ColumnConfig(member.column(), classStrategy,
+                        classRule.type(), classRule.jsonPaths(), classRule.minYear(), classRule.maxYear());
                 propagationByColumn.put(member, propagated);
             }
         }
@@ -217,12 +207,16 @@ public class FkStrategyPropagator {
         for (int i = 1; i < activeColumns.size(); i++) {
             ColumnConfig other = declared.get(activeColumns.get(i));
             if (other.strategy() != anchor.strategy()
-                    || (anchor.strategy() == Strategy.FAKE && other.type() != anchor.type())) {
+                    || (anchor.strategy() == Strategy.FAKE && (other.type() != anchor.type()
+                            || !Objects.equals(other.minYear(), anchor.minYear())
+                            || !Objects.equals(other.maxYear(), anchor.maxYear())))) {
                 Set<String> sorted = new TreeSet<>();
                 for (ColumnKey col : activeColumns) {
                     ColumnConfig rule = declared.get(col);
                     sorted.add(col + "=" + rule.strategy()
-                            + (rule.type() != null ? "(" + rule.type() + ")" : ""));
+                            + (rule.type() != null ? "(" + rule.type() + ")" : "")
+                            + (rule.minYear() != null || rule.maxYear() != null
+                                    ? "[" + rule.minYear() + ".." + rule.maxYear() + "]" : ""));
                 }
                 throw new ConfigurationException(
                         BrumeErrorCode.CONFIG_FK_PROPAGATION_STRATEGY_CONFLICT,
@@ -238,42 +232,6 @@ public class FkStrategyPropagator {
         return anchor;
     }
 
-    private void validateFakeLinkedColumns(List<ColumnKey> classMembers,
-                                           Set<ColumnKey> nullifyColumns,
-                                           Set<SemanticKeyPair> linkedPairs,
-                                           ColumnConfig classRule) {
-        if (classMembers.size() <= 1) {
-            return;
-        }
-        // For FAKE, each pair (other, member) of non-opted-out columns of the class must be
-        // covered by an explicit linked_columns entry — otherwise the substitution dictionary
-        // returns different fake values for what is supposed to be the same logical id.
-        List<ColumnKey> activeMembers = classMembers.stream()
-                .filter(c -> !nullifyColumns.contains(c))
-                .toList();
-        for (int i = 0; i < activeMembers.size(); i++) {
-            for (int j = i + 1; j < activeMembers.size(); j++) {
-                ColumnKey a = activeMembers.get(i);
-                ColumnKey b = activeMembers.get(j);
-                if (!linkedPairs.contains(new SemanticKeyPair(a.table(), a.column(),
-                        b.table(), b.column()))) {
-                    throw new ConfigurationException(
-                            BrumeErrorCode.CONFIG_FK_PROPAGATION_FAKE_REQUIRES_LINK,
-                            "FAKE strategy " + classRule.type() + " is declared on a column "
-                                    + "linked by FK to '" + b + "' but no 'linked_columns' "
-                                    + "entry covers the pair (" + a + ", " + b + ")",
-                            "FAKE strategies require a shared semantic_key to keep linked "
-                                    + "columns consistent (otherwise the substitution dictionary "
-                                    + "returns a different fake value for each column and the "
-                                    + "child row is orphaned). Either declare both columns under "
-                                    + "the same 'linked_columns' entry in config.yaml, or switch "
-                                    + "the strategy to FPE_ID / FPE_UUID / HASH for automatic "
-                                    + "propagation without linked_columns.");
-                }
-            }
-        }
-    }
-
     // -------------------------------------------------------------------------
     // Indexing helpers
     // -------------------------------------------------------------------------
@@ -287,21 +245,6 @@ public class FkStrategyPropagator {
             }
         }
         return index;
-    }
-
-    private Set<SemanticKeyPair> indexLinkedColumns(AnonymizationConfig anonymization) {
-        Set<SemanticKeyPair> pairs = new HashSet<>();
-        for (LinkedColumnsConfig linked : anonymization.linkedColumns()) {
-            List<ColumnReference> refs = linked.columns();
-            if (refs == null || refs.size() < 2) continue;
-            for (ColumnReference a : refs) {
-                for (ColumnReference b : refs) {
-                    if (a == b) continue;
-                    pairs.add(new SemanticKeyPair(a.table(), a.column(), b.table(), b.column()));
-                }
-            }
-        }
-        return pairs;
     }
 
     private AnonymizerConfig rebuild(AnonymizerConfig original,
@@ -348,27 +291,6 @@ public class FkStrategyPropagator {
             return Comparator.comparing(ColumnKey::table)
                     .thenComparing(ColumnKey::column)
                     .compare(this, other);
-        }
-    }
-
-    /**
-     * Symmetric pair of (table, column) endpoints used to test whether two columns are covered
-     * by a {@code linked_columns} entry. Two pairs are equal regardless of endpoint order.
-     */
-    private record SemanticKeyPair(String aTable, String aColumn, String bTable, String bColumn) {
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) return true;
-            if (!(obj instanceof SemanticKeyPair other)) return false;
-            return (aTable.equals(other.aTable) && aColumn.equals(other.aColumn)
-                    && bTable.equals(other.bTable) && bColumn.equals(other.bColumn))
-                || (aTable.equals(other.bTable) && aColumn.equals(other.bColumn)
-                    && bTable.equals(other.aTable) && bColumn.equals(other.aColumn));
-        }
-        @Override
-        public int hashCode() {
-            return (aTable + "." + aColumn).hashCode()
-                    ^ (bTable + "." + bColumn).hashCode();
         }
     }
 

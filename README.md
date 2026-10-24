@@ -13,13 +13,13 @@
 ## Key features
 
 - **Strong deterministic pseudonymization** — same input + same secret → same output, across runs and across all releases of a major version (see [Determinism and versions](#determinism-and-versions)). Test environments stay consistent from one refresh to the next.
-- **Foreign key preservation** — IDs are encrypted consistently (`FPE_ID`, `FPE_UUID`): FK constraints remain valid on the target database, without having to disable integrity checks.
+- **Foreign key preservation** — IDs are encrypted consistently (`FPE_ID`, `FPE_UUID`): FK constraints remain valid on the target database, without having to disable integrity checks. A rule declared on any column of a foreign key (`FPE_ID`, `FPE_UUID`, `HASH`, `FAKE`) is applied to every column it is linked to by foreign keys — nothing else to declare.
 - **Automatic FK traversal in both directions** — if you extract `orders`, Brume also copies the rows within `fk_depth` FK hops of them (their `users`, their `order_items`, …) and, by default, every parent those rows need: the target never holds a dangling FK.
 - **Declarative configuration** — a `brume.yml` file defines, per table and per column, the strategy to apply (`FAKE`, `HASH`, `MASK`, `NULLIFY`, `FPE_ID`, `FPE_UUID`, `DATE_SHIFT`, `KEEP`).
 - **Safe on UNIQUE columns** — fake values on a unique column get a uniqueness suffix; a remaining collision never stops the run and is reported table by table. A dump never contains a duplicate key (see [UNIQUE columns and collisions](#unique-columns-and-collisions)).
 - **Real-world schemas** — accented and spaced table / column names, partitioned tables, views (see [Schema support](#schema-support)).
 - **Schema auto-scan** — `brume scan` introspects the source database and generates a pre-filled `brume.yml` with suggested rules for PII patterns (email, phone, address, IBAN, credentials…) and primary keys (`FPE_ID` / `FPE_UUID`).
-- **Cross-table consistency** — `linked_columns` guarantees that the same real value produces the same fake value across multiple tables without an FK link between them.
+- **Cross-table consistency** — `linked_columns` guarantees that the same real value produces the same fake value across multiple tables **without an FK link between them**. Columns linked by a foreign key don't need it.
 - **JSONB columns** — `$.field.subfield` paths are pseudonymized individually.
 - **Date handling** — `DATE_SHIFT` for deterministic ±N-day perturbation on `date`/`timestamp` columns (preserves age cohorts and event ordering), or `FAKE` + `type: DATE` for a fully synthetic DOB with configurable `min_year` / `max_year`.
 - **k-anonymity audit** — `brume audit --anonymity` subcommand to measure residual re-identification risk and produce a DPO report.

@@ -192,11 +192,13 @@ class EdgeCasesE2E {
      * On a UNIQUE column the fake now carries a 64-bit suffix derived from the real value.
      * #29c regression — each column of a linked pair cut the suffixed fake to its own length :
      * a varchar(20) FK no longer matched its varchar(100) parent.
+     * #70d — no linked_columns entry : FAKE propagates along the FK like HASH and FPE_ID.
      */
     @Test
     @Order(8)
     @DisplayName("#29a — FAKE FIRST_NAME on the UNIQUE nickname : 400 rows, 400 distinct suffixed names ; "
-            + "#29c — the shorter FK column badge.holder_nickname gets the same value, cut the same way")
+            + "#29c / #70d — the shorter FK column badge.holder_nickname gets the same value, cut the same way, "
+            + "without linked_columns")
     void fakeFirstNameOnUniqueColumnKeepsEveryRow() throws IOException {
         String yaml = Files.readString(E2eSettings.RESOURCES.resolve("edge-brume.yml"));
         String email = """
@@ -205,20 +207,11 @@ class EdgeCasesE2E {
                           type: EMAIL
                 """;
         assertThat(yaml).contains(email);
-        // FAKE on FK-linked columns requires linked_columns (ADR-0044)
+        // No linked_columns : FAKE follows the FK badge.holder_nickname on its own (#70d, ADR-0057)
         project.useConfig(yaml.replace(email, email + """
                         - name: nickname
                           strategy: FAKE
                           type: FIRST_NAME
-                """).replace("anonymization:\n", """
-                anonymization:
-                  linked_columns:
-                    - semantic_key: nickname
-                      columns:
-                        - table: Account
-                          column: nickname
-                        - table: badge
-                          column: holder_nickname
                 """));
 
         BrumeCli.Result execute = project.run("execute");

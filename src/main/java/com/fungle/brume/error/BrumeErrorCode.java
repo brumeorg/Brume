@@ -102,9 +102,6 @@ public enum BrumeErrorCode {
     /** A referenced primary key uses {@code NULLIFY} or {@code MASK} — would break FK integrity (cf. ADR-0023). */
     CONFIG_FK_PROPAGATION_INTEGRITY_BREAKING,
 
-    /** A referenced primary key uses {@code FAKE} but the FK is not covered by a {@code linked_columns} entry (cf. ADR-0023). */
-    CONFIG_FK_PROPAGATION_FAKE_REQUIRES_LINK,
-
     /** A foreign key is declared with a strategy that conflicts with its parent PK's strategy (cf. ADR-0023). */
     CONFIG_FK_PROPAGATION_STRATEGY_CONFLICT,
 
