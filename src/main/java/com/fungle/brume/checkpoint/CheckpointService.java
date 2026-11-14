@@ -52,6 +52,7 @@ public class CheckpointService {
     private static final Logger log = LoggerFactory.getLogger(CheckpointService.class);
 
     private final BrumeProperties.CheckpointProperties config;
+    private final BrumeProperties brumeProperties;
     private final String configPath;
     private final String sourceSchema;
     private final ObjectMapper objectMapper;
@@ -59,11 +60,13 @@ public class CheckpointService {
     private CheckpointStore store;       // null when disabled
     private CheckpointState state;       // null when disabled
     private boolean booted;
+    private boolean resuming;           // a prior checkpoint with completed tables was loaded
 
     public CheckpointService(BrumeProperties brumeProperties,
                              ReplicationProperties replicationProperties,
                              ObjectMapper objectMapper) {
         this.config = brumeProperties.checkpoint();
+        this.brumeProperties = brumeProperties;
         this.configPath = brumeProperties.configPath();
         this.sourceSchema = replicationProperties.schema();
         this.objectMapper = objectMapper;
@@ -87,9 +90,24 @@ public class CheckpointService {
             this.store = null;
         }
         booted = true;
+        resuming = false;
 
         if (!config.enabled()) {
             log.debug("Checkpoint disabled (brume.checkpoint.enabled=false) — no-op service");
+            return;
+        }
+        // Resume only makes sense where already written tables survive the restart : the JDBC
+        // target in STREAMING mode. A dump file is rewritten by each run (#25k), dry-run writes
+        // nothing, BATCH writes every table at the end (#25h) — skipping tables there would
+        // silently produce an incomplete result. Run fully instead.
+        com.fungle.brume.writer.SinkType sink = brumeProperties.sink() == null ? null : brumeProperties.sink().type();
+        if (sink != com.fungle.brume.writer.SinkType.JDBC
+                || brumeProperties.pipelineMode() != com.fungle.brume.config.PipelineMode.STREAMING) {
+            String why = sink != com.fungle.brume.writer.SinkType.JDBC
+                    ? "sink " + sink + " rewrites its whole output on every run"
+                    : "pipeline mode BATCH writes every table at the end of the run (#25h)";
+            log.warn("Checkpoint ignored : {} — running every table. Resume works with the JDBC sink "
+                    + "in STREAMING mode.", why);
             return;
         }
 
@@ -111,6 +129,7 @@ public class CheckpointService {
             }
             warnOnTablesDriftedOutOfSchema(prior, schema);
             this.state = prior;
+            this.resuming = !prior.completedTables().isEmpty();
             log.info("Checkpoint loaded from {} : {} table(s) already completed — skipping them",
                     path, prior.completedTables().size());
         } else {
@@ -150,6 +169,44 @@ public class CheckpointService {
         store.write(state);
         log.debug("Checkpoint: marked '{}' as completed ({} total) — written to {}",
                 table, state.completedTables().size(), store.path());
+    }
+
+    /**
+     * {@code true} when this run resumes an interrupted one : tables are already written in
+     * the target, so its schema must be kept, not replicated again (#25j).
+     */
+    public boolean isResuming() {
+        return resuming;
+    }
+
+    /**
+     * Forgets the loaded checkpoint and starts a fresh one — used when the target schema the
+     * interrupted run created is gone, so nothing written before can be kept.
+     */
+    public void startFresh() {
+        if (state == null || store == null) return;
+        state = CheckpointState.initial(UUID.randomUUID().toString(), sourceSchema, state.configHash(), Instant.now());
+        resuming = false;
+        store.write(state);
+    }
+
+    /**
+     * Deletes the checkpoint at the end of a successful run (#25i). Kept, it made the next
+     * {@code execute} skip every table it listed — after a replication that had just dropped
+     * and recreated them empty.
+     */
+    public void complete() {
+        if (store == null) return;
+        try {
+            java.nio.file.Files.deleteIfExists(store.path());
+            log.info("Checkpoint {} removed — run completed", store.path());
+        } catch (java.io.IOException e) {
+            log.warn("Run completed but the checkpoint {} could not be removed ({}) : delete it before "
+                    + "the next execute, or it will skip the tables it lists.", store.path(), e.getMessage());
+        }
+        state = null;
+        store = null;
+        resuming = false;
     }
 
     /** Read-only access for diagnostics (e.g. ReportRenderer footer). May be null. */

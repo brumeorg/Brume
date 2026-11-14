@@ -1,5 +1,7 @@
 package com.fungle.brume.writer;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.config.model.AnonymizationConfig;
 import com.fungle.brume.config.model.AnonymizerConfig;
@@ -40,7 +42,7 @@ import static org.mockito.ArgumentMatchers.eq;
 /**
  * Round-trip integration tests for {@link SqlFileSink} with compression — produces
  * compressed dumps, decompresses them in-memory in Java, then pipes the plain SQL
- * to {@code docker exec brume-target psql}.
+ * to {@code ItDatabases.targetPsql(...)}.
  *
  * <p>This validates that the compression chain (gzip / zstd) produces files whose
  * decompressed content is a valid {@code psql -f} restorable dump.
@@ -48,8 +50,8 @@ import static org.mockito.ArgumentMatchers.eq;
 @SpringBootTest
 @TestPropertySource(properties = {
         "brume.config-path=src/test/resources/test-config-integration.yaml",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres"
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}"
 })
 class SqlFileSinkCompressionIT {
 
@@ -111,15 +113,10 @@ class SqlFileSinkCompressionIT {
 
     /**
      * Decompresses {@code dumpPath} (according to {@code compression}) and pipes the
-     * plain SQL to {@code docker exec brume-target psql}. Asserts a zero exit code.
+     * plain SQL to {@code ItDatabases.targetPsql(...)}. Asserts a zero exit code.
      */
     private void restoreCompressedDumpViaPsql(CompressionType compression) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(
-                "docker", "exec", "-i",
-                "-e", "PGPASSWORD=postgres",
-                "brume-target",
-                "psql", "-U", "postgres", "-d", "postgres",
-                "-v", "ON_ERROR_STOP=1",
+        ProcessBuilder pb = ItDatabases.targetPsql("-v", "ON_ERROR_STOP=1",
                 "--quiet"
         );
         pb.redirectErrorStream(true);

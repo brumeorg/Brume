@@ -10,6 +10,7 @@ import com.fungle.brume.error.SchemaException;
 import com.fungle.brume.error.WriteException;
 import com.fungle.brume.output.OutputMode;
 import com.fungle.brume.shutdown.CancellationException;
+import com.fungle.brume.shutdown.CancellationRegistry;
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
 import picocli.CommandLine.ParseResult;
@@ -52,6 +53,9 @@ public class BrumeExecutionExceptionHandler implements IExecutionExceptionHandle
 
     private static final String STACK_TRACE_PROPERTY = "brume.show-stacktrace";
 
+    private static final String CANCELLED_SUGGESTION = "Run stopped by a termination signal. Tables already "
+            + "written are kept ; with brume.checkpoint.enabled=true the next execute resumes after them.";
+
     private final PrintStream err;
 
     public BrumeExecutionExceptionHandler() {
@@ -65,19 +69,43 @@ public class BrumeExecutionExceptionHandler implements IExecutionExceptionHandle
 
     @Override
     public int handleExecutionException(Exception ex, CommandLine commandLine, ParseResult parseResult) {
+        return report(ex);
+    }
+
+    /**
+     * Prints {@code ex} in the format of this handler and returns its exit code. Shared by
+     * picocli (failures of a subcommand) and {@code BrumeApplication.main} (failures before
+     * picocli runs : pre-boot checks, Spring context boot — #17c, ADR-0061), so every error
+     * reaches the operator in the same {@code [CODE] message → suggestion → Exit code} shape,
+     * in TEXT or JSON mode.
+     */
+    public int report(Throwable ex) {
         boolean json = OutputMode.current() == OutputMode.JSON;
         // #24 / A22 — SIGTERM cancel is a special exit code path: 130 (POSIX SIGINT-style),
         // outside the BrumeException grid (ADR-0026). Short message, no stack, no suggestion.
         Throwable cancelCause = findCancellation(ex);
+        if (cancelCause == null && CancellationRegistry.cancellationRequested()) {
+            // #24d : the signal aborted a connection mid-query ; the SQLException the main
+            // thread got (wrapped as a filter, connection or write error) is not the cause.
+            cancelCause = new CancellationException("Brume run cancelled by a termination signal.");
+        }
         if (cancelCause != null) {
             if (json) {
-                err.println("{\"error\":{\"code\":\"RUN_CANCELLED\",\"message\":\""
-                        + cancelCause.getMessage() + "\"},\"exitCode\":130}");
+                // A signal sets the exit code itself (ADR-0063) : 143 for SIGTERM (docker stop,
+                // Kubernetes, CI cancel — the automated case JSON serves), 130 for SIGINT.
+                StringBuilder sb = new StringBuilder("{\"error\":{\"code\":\"RUN_CANCELLED\",");
+                appendJsonString(sb, "message", cancelCause.getMessage() == null ? "" : cancelCause.getMessage());
+                sb.append(',');
+                appendJsonString(sb, "suggestion", CANCELLED_SUGGESTION);
+                err.println(sb.append("},\"exitCode\":143}"));
             } else {
                 err.println();
                 err.println("[RUN_CANCELLED] " + cancelCause.getMessage());
-                err.println("  → Exit code: 130");
+                err.println("  → " + CANCELLED_SUGGESTION);
+                err.println("  → Exit code: 143 (SIGTERM) / 130 (SIGINT)");
             }
+            // Without a signal (in-process cancellation) this value is the exit code ; after a
+            // signal the JVM is already shutting down and exits with 128 + signal number.
             return 130;
         }
         if (ex instanceof BrumeException me) {
@@ -169,7 +197,7 @@ public class BrumeExecutionExceptionHandler implements IExecutionExceptionHandle
         err.println(sb);
     }
 
-    private void printUnexpectedJson(Exception ex) {
+    private void printUnexpectedJson(Throwable ex) {
         StringBuilder sb = new StringBuilder(256);
         sb.append("{\"error\":{");
         appendJsonString(sb, "code", "UNEXPECTED");

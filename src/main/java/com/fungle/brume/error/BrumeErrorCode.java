@@ -147,6 +147,38 @@ public enum BrumeErrorCode {
     /** {@code replication.target} is null. */
     CONFIG_REPLICATION_TARGET_MISSING,
 
+    // --- Settings & command line, before / during Spring boot (#17c-#17g, ADR-0061) ---
+
+    /** No {@code .env.brume} in the working directory and no {@code BRUME_HMAC_SECRET} in the environment. */
+    CONFIG_ENV_MISSING,
+
+    /** {@code .env.brume} cannot be read : malformed line, duplicated key. */
+    CONFIG_ENV_FILE_INVALID,
+
+    /** One or more required settings ({@code BRUME_HMAC_SECRET}, {@code BRUME_SOURCE_HOST}…) are not set. */
+    CONFIG_ENV_VAR_MISSING,
+
+    /** A setting holds a value of the wrong type or outside its allowed values (enum, number, duration). */
+    CONFIG_PROPERTY_INVALID,
+
+    /** Mutually exclusive global flags ({@code --verbose} and {@code --quiet}). */
+    CONFIG_INVALID_FLAGS,
+
+    /** The command line does not parse : unknown subcommand or option, missing or mistyped value. */
+    CONFIG_CLI_USAGE,
+
+    /** {@code sslmode} of a JDBC URL is not one of the values PostgreSQL accepts. */
+    CONFIG_JDBC_SSLMODE_INVALID,
+
+    /** {@code replication.pool-size} ({@code BRUME_PARALLELISM}) is lower than 1. */
+    CONFIG_POOL_SIZE_INVALID,
+
+    /** Warning only : {@code brume.yml} contains a key Brume does not know (ignored unless strict-config). */
+    CONFIG_UNKNOWN_KEY,
+
+    /** Warning only : {@code brume.faker-locale} ({@code BRUME_LOCALE}) is not a known language. */
+    CONFIG_LOCALE_UNKNOWN,
+
     // ---------------------------------------------------------------------
     // Connection (exit code 2)
     // ---------------------------------------------------------------------
@@ -219,6 +251,15 @@ public enum BrumeErrorCode {
 
     /** {@code --quasi-id} references a column that does not exist in the named table. */
     AUDIT_UNKNOWN_COLUMN,
+
+    /** {@code brume audit} invoked without an audit kind ({@code --anonymity}) (#17f, ADR-0061). */
+    AUDIT_KIND_REQUIRED,
+
+    /** {@code --quasi-id} value is not of the form {@code table:col1,col2} (#17f, ADR-0061). */
+    AUDIT_QUASI_ID_INVALID,
+
+    /** {@code --sample-rate} is outside {@code (0, 1]} (#17f, ADR-0061). */
+    AUDIT_SAMPLE_RATE_INVALID,
 
     // ---------------------------------------------------------------------
     // Checkpoint / resume (#25 / ADR-0037) — exit code 1 (Configuration family)

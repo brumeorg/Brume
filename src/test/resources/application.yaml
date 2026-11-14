@@ -1,3 +1,10 @@
+# Databases and client tools of the ITs (ADR-0059) — mirrored by com.fungle.brume.ItDatabases.
+# Override with -Dit.db.* or the BRUME_IT_* environment variables (CI matrix).
+it:
+  db:
+    source-url: ${BRUME_IT_SOURCE_URL:jdbc:postgresql://localhost:5432/postgres}
+    target-url: ${BRUME_IT_TARGET_URL:jdbc:postgresql://localhost:5460/postgres}
+    pgdump-path: ${BRUME_IT_PGDUMP_PATH:docker run --rm -i --network host -e PGPASSWORD -e PGSSLMODE postgres:18 pg_dump}
 spring:
   application:
     name: brume
@@ -15,13 +22,13 @@ brume:
     json-file: ""
     html-file: ""
 replication:
-  pgdump-path: pg_dump
+  pgdump-path: ${it.db.pgdump-path}
   source:
-    url: jdbc:postgresql://localhost:5432/postgres
+    url: ${it.db.source-url}
     username: postgres
     password: postgres
   target:
-    url: jdbc:postgresql://localhost:5460/postgres
+    url: ${it.db.target-url}
     username: postgres
     password: postgres
   schema: test_brume

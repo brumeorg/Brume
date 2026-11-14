@@ -47,15 +47,19 @@ class PgDumpCheckerTest {
     }
 
     @Test
-    @DisplayName("Result.meetsRequirement true only for >= 17")
+    @DisplayName("ADR-0058 — meetsRequirement from 12 (supported floor), isRecommended from 18")
     void meetsRequirement() {
-        assertThat(new PgDumpChecker.Result(true, Optional.of(17), Optional.empty()).meetsRequirement())
+        assertThat(new PgDumpChecker.Result(true, Optional.of(12), Optional.empty()).meetsRequirement())
                 .isTrue();
-        assertThat(new PgDumpChecker.Result(true, Optional.of(18), Optional.empty()).meetsRequirement())
-                .isTrue();
-        assertThat(new PgDumpChecker.Result(true, Optional.of(16), Optional.empty()).meetsRequirement())
+        assertThat(new PgDumpChecker.Result(true, Optional.of(11), Optional.empty()).meetsRequirement())
                 .isFalse();
+        assertThat(new PgDumpChecker.Result(true, Optional.of(17), Optional.empty()).isRecommended())
+                .isFalse();
+        assertThat(new PgDumpChecker.Result(true, Optional.of(18), Optional.empty()).isRecommended())
+                .isTrue();
         assertThat(new PgDumpChecker.Result(false, Optional.empty(), Optional.empty()).meetsRequirement())
+                .isFalse();
+        assertThat(new PgDumpChecker.Result(false, Optional.empty(), Optional.empty()).isRecommended())
                 .isFalse();
     }
 }

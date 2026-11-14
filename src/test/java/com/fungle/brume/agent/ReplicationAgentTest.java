@@ -230,7 +230,8 @@ class ReplicationAgentTest {
                 agentDeps.preflightCheckRunner,
                 new com.fungle.brume.shutdown.CancellationToken(),
                 agentDeps.checkpointService,
-                mock(ExecutionStateWriter.class)
+                mock(ExecutionStateWriter.class),
+                mock(com.fungle.brume.preflight.ExtractionFilterProbe.class)
         );
     }
 

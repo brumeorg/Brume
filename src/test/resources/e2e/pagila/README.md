@@ -5,7 +5,7 @@ Copied unmodified from <https://github.com/devrimgunduz/pagila>, commit
 (see `LICENSE.txt`). Fictional data — no real personal data.
 
 Why this commit : the next upstream commits add a `vector` column (pgvector extension) and a
-`VIRTUAL` generated column (PostgreSQL 18) that the PostgreSQL 16 servers of the CI cannot load.
+`VIRTUAL` generated column (PostgreSQL 18) that the older servers of the CI (12 → 17, ADR-0060) cannot load.
 
 | File | Upstream file | sha256 of the uncompressed upstream file |
 |---|---|---|
@@ -13,9 +13,11 @@ Why this commit : the next upstream commits add a `vector` column (pgvector exte
 | `pagila-data.sql.gz` | `pagila-data.sql` | `c8bb1978d9bdc7d0e79821b7380908a6812b704340555e7ce859770dc5bcbe40` |
 | `LICENSE.txt` | `LICENSE.txt` | `516e7dac679ac1eeb62d5614b01c4e7318154e9a147377d6264954215997ff38` |
 
-Loaded by `PagilaE2E` with `psql`. One substitution happens at load time, not in these
-files: `uuidv7()` (PostgreSQL 18+) becomes `gen_random_uuid()` so the schema loads on the
-PostgreSQL 16 servers of the CI. The data sets every uuid explicitly, so the default is
-never used.
+Loaded by `PagilaE2E` with `psql`. Two substitutions happen at load time, not in these
+files, so the fixture loads on every server of the CI (PostgreSQL 12 → 18, ADR-0060):
+`uuidv7()` (PostgreSQL 18+) becomes `md5(random()::text)::uuid` (`gen_random_uuid()` only
+exists from 13 ; the data sets every uuid explicitly, so the default is never used), and the
+`SET transaction_timeout` line of the data dump (pg_dump ≥ 17, unknown to servers ≤ 16) is
+removed.
 
 To update: download the three files at a newer commit, gzip with `gzip -9 -n`, update this table.

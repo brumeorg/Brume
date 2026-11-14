@@ -9,7 +9,8 @@ import java.util.concurrent.Callable;
 
 @CommandLine.Command(
         name = "init",
-        description = "Bootstrap a new Brume project : checks pg_dump " + PgDumpChecker.REQUIRED_MAJOR_VERSION
+        description = "Bootstrap a new Brume project : checks pg_dump (" + PgDumpChecker.RECOMMENDED_MAJOR_VERSION
+                + " recommended)"
                 + " and creates brume.yml and .env.brume from bundled templates. "
                 + "Pick a sink mode via the subcommand (jdbc, dump) or omit it to be prompted.",
         subcommands = {BrumeInitCommand.JdbcInit.class, BrumeInitCommand.DumpInit.class}
@@ -79,7 +80,7 @@ public final class BrumeInitCommand implements Callable<Integer> {
 
     private void checkPgDump() {
         PgDumpChecker.Result result = pgDumpChecker.probe();
-        if (result.meetsRequirement()) {
+        if (result.isRecommended()) {
             prompter.info("✓ pg_dump " + result.majorVersion().orElseThrow() + " detected.");
             return;
         }
@@ -87,10 +88,17 @@ public final class BrumeInitCommand implements Callable<Integer> {
         String installCmd = osDetector.installCommandFor(family);
         if (!result.found()) {
             prompter.warn("⚠ pg_dump not found on PATH.");
+        } else if (result.meetsRequirement()) {
+            int detected = result.majorVersion().orElseThrow();
+            prompter.info("✓ pg_dump " + detected + " detected.");
+            prompter.warn("⚠ pg_dump " + detected + " can only read source databases up to PostgreSQL "
+                    + detected + ". Install pg_dump " + PgDumpChecker.RECOMMENDED_MAJOR_VERSION
+                    + " to cover every supported version.");
         } else {
             int detected = result.majorVersion().orElse(0);
-            prompter.warn("⚠ pg_dump " + detected + " detected — Brume expects "
-                    + PgDumpChecker.REQUIRED_MAJOR_VERSION + ".");
+            prompter.warn("⚠ pg_dump " + detected + " detected — Brume requires at least "
+                    + PgDumpChecker.MINIMUM_MAJOR_VERSION + " (" + PgDumpChecker.RECOMMENDED_MAJOR_VERSION
+                    + " recommended).");
         }
         prompter.warn("  Install command for your OS :");
         prompter.warn("    " + installCmd);

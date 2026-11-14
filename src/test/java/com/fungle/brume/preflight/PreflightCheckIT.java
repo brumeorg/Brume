@@ -1,5 +1,7 @@
 package com.fungle.brume.preflight;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.BrumeApplication;
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
@@ -36,9 +38,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class PreflightCheckIT {
 
-    private static final String SOURCE_URL = "jdbc:postgresql://localhost:5432/postgres";
-    private static final String TARGET_URL = "jdbc:postgresql://localhost:5460/postgres";
-    private static final String PGDUMP = "docker exec -e PGPASSWORD=postgres brume-source pg_dump";
+    private static final String SOURCE_URL = ItDatabases.SOURCE_URL;
+    private static final String TARGET_URL = ItDatabases.TARGET_URL;
+    private static final String PGDUMP = ItDatabases.PGDUMP_PATH;
 
     private static Map<String, Object> baseProps() {
         Map<String, Object> p = new LinkedHashMap<>();

@@ -1,5 +1,7 @@
 package com.fungle.brume.scenario;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
 import com.fungle.brume.config.BrumeProperties;
@@ -57,9 +59,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "brume.sink.type=DUMP",
         "brume.sink.compression=NONE",
         "brume.sink.output-path=target/scenario-its/j1-dump.sql",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres",
-        "replication.pgdump-path=docker exec -e PGPASSWORD=postgres brume-source pg_dump"
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}",
+        "replication.pgdump-path=${it.db.pgdump-path}"
 })
 @DirtiesContext
 class PlanModePostExecuteIT {
@@ -87,7 +89,7 @@ class PlanModePostExecuteIT {
     private static JdbcTemplate standaloneTargetJdbc() {
         SimpleDriverDataSource ds = new SimpleDriverDataSource();
         ds.setDriver(new org.postgresql.Driver());
-        ds.setUrl("jdbc:postgresql://localhost:5460/postgres");
+        ds.setUrl(ItDatabases.TARGET_URL);
         ds.setUsername("postgres");
         ds.setPassword("postgres");
         return new JdbcTemplate(ds);

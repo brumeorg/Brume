@@ -10,7 +10,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,13 +71,13 @@ class SinkModesE2E {
      * The {@code --strip-timestamps} CLI flag is rejected by picocli (known gap #22a), so the
      * option is set the other supported way : {@code .env.brume} entries become system properties.
      *
-     * <p>KNOWN GAP #25e — pg_dump (16.10+ / 17.6+ / 18) wraps its DDL in psql "restrict" /
-     * "unrestrict" meta-commands carrying a random key per run, so the two files differ on
-     * exactly those two lines ; everything brume writes is identical.
+     * <p>#25e — pg_dump (16.10+ / 17.6+ / 18) wraps its DDL in psql "restrict" / "unrestrict"
+     * meta-commands carrying a random key per run. Brume strips them (#3b, ADR-0058), so the
+     * two files are identical byte for byte.
      */
     @Test
-    @DisplayName("DUMP with strip-timestamps : two runs are identical byte for byte, "
-            + "except pg_dump's random \\restrict key (KNOWN GAP #25e)")
+    @DisplayName("#25e — DUMP with strip-timestamps : two runs are identical byte for byte "
+            + "(pg_dump's random \\restrict key is stripped, ADR-0058)")
     void dumpIsByteIdenticalAcrossRuns() throws IOException {
         project.setEnv("brume.sink.strip-timestamps", "true");
         try {
@@ -93,15 +92,9 @@ class SinkModesE2E {
         List<String> run1 = Files.readAllLines(project.file("dumps/run-1.sql"));
         List<String> run2 = Files.readAllLines(project.file("dumps/run-2.sql"));
         assertThat(run1).noneMatch(line -> line.contains("generated_at"));
-        assertThat(withoutRestrictKeys(run1)).as("dump lines outside pg_dump's \\restrict key").isEqualTo(withoutRestrictKeys(run2));
-        List<String> differing = new ArrayList<>(run1);
-        differing.removeAll(run2);
-        assertThat(differing).as("KNOWN GAP #25e — only the restrict key lines differ")
-                .allMatch(line -> line.startsWith("\\restrict ") || line.startsWith("\\unrestrict "));
-    }
-
-    private static List<String> withoutRestrictKeys(List<String> lines) {
-        return lines.stream().filter(l -> !l.startsWith("\\restrict ") && !l.startsWith("\\unrestrict ")).toList();
+        assertThat(run1).as("#25e — pg_dump's random restrict key lines are stripped")
+                .noneMatch(line -> line.startsWith("\\restrict ") || line.startsWith("\\unrestrict "));
+        assertThat(run1).isEqualTo(run2);
     }
 
     private void dumpTo(String outputPath, String compression) {

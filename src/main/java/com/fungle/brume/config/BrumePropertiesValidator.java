@@ -71,8 +71,10 @@ public class BrumePropertiesValidator {
     public void validate() {
         log.debug("Validating cryptographic key properties...");
         validateHmacSecret();
+        validateHmacAlgorithm();
         validateFpeKey();
         warnOnTemplateSecrets();
+        warnOnUnknownLocale();
         validateGuardrails();
         validateOutputPaths();
         validateSinkCompressionExtension();
@@ -117,6 +119,17 @@ public class BrumePropertiesValidator {
                             + HMAC_SECRET_MIN_LENGTH + " UTF-8 bytes.");
         }
 
+        // #17d : an unset BRUME_HMAC_SECRET reaches here as the literal "${BRUME_HMAC_SECRET}",
+        // long enough to pass the length check — a public, guessable key. RequiredSettings
+        // stops it before boot ; this is the last barrier.
+        if (secret.contains("${")) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_HMAC_SECRET_MISSING,
+                    "brume.hmac-secret is not set : BRUME_HMAC_SECRET is missing",
+                    "Add BRUME_HMAC_SECRET to .env.brume (or export it) — a high-entropy value of at "
+                            + "least " + HMAC_SECRET_MIN_LENGTH + " UTF-8 bytes, e.g. 'openssl rand -hex 32'.");
+        }
+
         int lengthBytes = secret.getBytes(StandardCharsets.UTF_8).length;
         if (lengthBytes < HMAC_SECRET_MIN_LENGTH) {
             throw new ConfigurationException(
@@ -145,6 +158,15 @@ public class BrumePropertiesValidator {
                             + "key size you intend to use (AES-128, AES-192, or AES-256).");
         }
 
+        // #17d : "${BRUME_FPE_KEY}" is exactly 16 bytes — it used to pass as an AES-128 key.
+        if (key.contains("${")) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_FPE_KEY_MISSING,
+                    "brume.fpe-key is not set : BRUME_FPE_KEY is missing",
+                    "Add BRUME_FPE_KEY to .env.brume (or export it) — 16, 24 or 32 UTF-8 bytes, "
+                            + "e.g. 'openssl rand -hex 8' (16 hex characters).");
+        }
+
         int lengthBytes = key.getBytes(StandardCharsets.UTF_8).length;
         if (!VALID_FPE_KEY_LENGTHS.contains(lengthBytes)) {
             throw new ConfigurationException(
@@ -153,6 +175,39 @@ public class BrumePropertiesValidator {
                     "Adjust the value of 'brume.fpe-key' so its UTF-8 length is exactly 16 "
                             + "(AES-128), 24 (AES-192), or 32 (AES-256). Generate a fresh key with "
                             + "'openssl rand -hex 16' (→ 32 hex chars = 32 bytes).");
+        }
+    }
+
+    /**
+     * Checks {@code brume.hmac-algorithm} at boot (#17g). The algorithm used to be resolved on
+     * the first HASH value only : {@code brume plan} accepted {@code HmacNope}, and
+     * {@code brume execute} failed after the preflight.
+     */
+    private void validateHmacAlgorithm() {
+        String algorithm = properties.hmacAlgorithm();
+        try {
+            javax.crypto.Mac.getInstance(algorithm == null ? "" : algorithm);
+        } catch (java.security.NoSuchAlgorithmException | IllegalArgumentException e) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_HMAC_INVALID,
+                    "HMAC algorithm '" + algorithm + "' is unavailable on this JVM.",
+                    "Set BRUME_HMAC_ALGORITHM to a supported algorithm : HmacSHA256 (default), "
+                            + "HmacSHA384, HmacSHA512.",
+                    e);
+        }
+    }
+
+    /**
+     * Datafaker silently falls back to English on a locale it does not know : warn (#17g),
+     * without failing — a regional variant it lacks still gets a usable language.
+     */
+    private void warnOnUnknownLocale() {
+        String tag = properties.fakerLocale();
+        if (tag == null || tag.isBlank()) return;
+        String language = java.util.Locale.forLanguageTag(tag.trim().replace('_', '-')).getLanguage();
+        if (language.isEmpty() || !java.util.Arrays.asList(java.util.Locale.getISOLanguages()).contains(language)) {
+            log.warn("[CONFIG_LOCALE_UNKNOWN] brume.faker-locale='{}' (BRUME_LOCALE) is not a known language : "
+                    + "fake values fall back to English. Use a language code such as en, fr, de, es.", tag);
         }
     }
 

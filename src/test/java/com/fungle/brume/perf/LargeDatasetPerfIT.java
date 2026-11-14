@@ -49,9 +49,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "brume.max-target-rows=600000",
         "brume.heap-warning-threshold-percent=95",
         "replication.schema=test_brume_perf",
-        "replication.pgdump-path=docker exec -e PGPASSWORD=postgres brume-source pg_dump",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres"
+        "replication.pgdump-path=${it.db.pgdump-path}",
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}"
 })
 class LargeDatasetPerfIT {
 

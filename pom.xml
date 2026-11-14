@@ -165,6 +165,12 @@
 			<resource>
 				<directory>src/main/resources</directory>
 			</resource>
+			<!-- Filtered apart : src/main/resources holds Thymeleaf templates full of ${…}.
+			     brume-version.properties gives the version to the native binary (#127g). -->
+			<resource>
+				<directory>src/main/resources-filtered</directory>
+				<filtering>true</filtering>
+			</resource>
 			<!-- `brume init` (ADR-0045) copies these templates from the classpath. Point
 			     of truth remains the repo root files — Maven embeds them into the jar
 			     under /init/, so drift is impossible by construction. -->
@@ -197,6 +203,12 @@
 						     for those libs, and stays in sync with each library version. -->
 						<enabled>true</enabled>
 					</metadataRepository>
+					<buildArgs>
+						<!-- Without it, a native image dies on SIGTERM / SIGINT without running the JVM
+						     shutdown hooks : no JDBC / pg_dump cancellation, no [RUN_CANCELLED], dump
+						     trailer never written (#24c, ADR-0063). -->
+						<buildArg>--install-exit-handlers</buildArg>
+					</buildArgs>
 				</configuration>
 			</plugin>
             <plugin>

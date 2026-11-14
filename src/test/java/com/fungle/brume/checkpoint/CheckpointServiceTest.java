@@ -37,6 +37,11 @@ class CheckpointServiceTest {
     }
 
     private BrumeProperties propsWith(BrumeProperties.CheckpointProperties cp, Path configFile) {
+        return propsWith(cp, configFile, com.fungle.brume.writer.SinkType.JDBC, PipelineMode.STREAMING);
+    }
+
+    private BrumeProperties propsWith(BrumeProperties.CheckpointProperties cp, Path configFile,
+                                      com.fungle.brume.writer.SinkType sink, PipelineMode mode) {
         return new BrumeProperties(
                 configFile.toString(),
                 "test-secret-16bytes",
@@ -46,11 +51,11 @@ class CheckpointServiceTest {
                 0.0,
                 0L,
                 85,
-                PipelineMode.STREAMING,
+                mode,
                 new BrumeProperties.SubstitutionDictProperties(1_000_000L),
                 new BrumeProperties.ReportProperties("", "", ""),
                 new BrumeProperties.SinkProperties(
-                        com.fungle.brume.writer.SinkType.JDBC, null,
+                        sink, null,
                         com.fungle.brume.writer.CompressionType.NONE,
                         new BrumeProperties.JdbcSinkProperties(com.fungle.brume.writer.CopyMode.NEVER)),
                 new BrumeProperties.PlanProperties(com.fungle.brume.plan.PlanMode.EXACT),
@@ -237,5 +242,46 @@ class CheckpointServiceTest {
         assertThat(svc.shouldSkip("users"))
                 .as("second boot should re-read the on-disk checkpoint")
                 .isTrue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0} / {1}")
+    @org.junit.jupiter.params.provider.CsvSource({"DUMP, STREAMING", "NULL, STREAMING", "JDBC, BATCH"})
+    @DisplayName("#25k / #25h — outside JDBC + STREAMING the checkpoint is ignored : nothing skipped, nothing written")
+    void ignoredWhereWrittenTablesDoNotSurvive(com.fungle.brume.writer.SinkType sink, PipelineMode mode) throws IOException {
+        Path configFile = writeYaml("extraction:\n  tables: [users]\n");
+        Path cpFile = tempDir.resolve("ignored-checkpoint.json");
+        CheckpointService fresh = new CheckpointService(propsWith(
+                new BrumeProperties.CheckpointProperties(true, cpFile.toString()), configFile), replicationProps(), mapper());
+        fresh.boot(schemaWith("users"));
+        fresh.markCompleted("users");
+        assertThat(cpFile).exists();
+
+        CheckpointService svc = new CheckpointService(propsWith(
+                new BrumeProperties.CheckpointProperties(true, cpFile.toString()), configFile, sink, mode),
+                replicationProps(), mapper());
+        svc.boot(schemaWith("users"));
+
+        assertThat(svc.shouldSkip("users")).as("a dump / dry-run / BATCH run must write every table").isFalse();
+        assertThat(svc.isResuming()).isFalse();
+    }
+
+    @Test
+    @DisplayName("#25i — complete() removes the checkpoint ; #25j — a loaded checkpoint with tables means resuming")
+    void completeRemovesTheFile() throws IOException {
+        Path configFile = writeYaml("extraction:\n  tables: [users, orders]\n");
+        Path cpFile = tempDir.resolve("complete-checkpoint.json");
+        BrumeProperties props = propsWith(new BrumeProperties.CheckpointProperties(true, cpFile.toString()), configFile);
+        CheckpointService first = new CheckpointService(props, replicationProps(), mapper());
+        first.boot(schemaWith("users", "orders"));
+        assertThat(first.isResuming()).isFalse();
+        first.markCompleted("users");
+
+        CheckpointService resumed = new CheckpointService(props, replicationProps(), mapper());
+        resumed.boot(schemaWith("users", "orders"));
+        assertThat(resumed.isResuming()).isTrue();
+        resumed.markCompleted("orders");
+        resumed.complete();
+
+        assertThat(cpFile).doesNotExist();
     }
 }

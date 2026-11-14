@@ -39,17 +39,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * d'idempotence} (mark ✅ when this IT lands).
  *
  * <p><strong>Requires Docker infrastructure</strong> — {@code docker-compose
- * up -d}. Uses {@code docker exec brume-source pg_dump} so no local
+ * up -d}. Uses the {@code it.db.pgdump-path} pg_dump (ADR-0059) so no local
  * {@code pg_dump} binary is required.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
         "brume.config-path=src/test/resources/test-config-integration.yaml",
         "brume.sink.type=JDBC",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres",
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}",
         "replication.schema=test_brume",
-        "replication.pgdump-path=docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+        "replication.pgdump-path=${it.db.pgdump-path}",
         "replication.pool-size=3"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

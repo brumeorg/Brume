@@ -29,7 +29,9 @@
 
 ## Prerequisites
 
-- **PostgreSQL 12, 13, 14, 15, 16, 17 or 18** on the source database and the target database (a local `pg_dump` ≥ source major version is required — Postgres compatibility policy)
+- **PostgreSQL 12, 13, 14, 15, 16, 17 or 18** on the source database and the target database
+- A local **`pg_dump` ≥ the source major version** (checked before every run). **`pg_dump` 18 is recommended**: one client reads every supported source, and the Docker image ships it.
+  - Loading into a target **older** than the source is best-effort: a feature the target does not know (e.g. `UNIQUE NULLS NOT DISTINCT`, 15+) fails whatever the client. Brume removes what an older server or `psql` rejects (`\restrict`, `SET transaction_timeout`), so only replay a dump file that comes from a trusted source (ADR-0058).
 - ⚠️ **Security**: preferably use a read-only account.
 
 ---
@@ -284,7 +286,7 @@ brume --help
 ```
 
 `brume init` is a one-shot bootstrap command for new projects. It probes `pg_dump`
-(expected major version ≥ 17), prints the OS-specific install command if missing
+(minimum 12, 18 recommended), prints the OS-specific install command if missing or older
 (non-blocking warning — init continues), and copies the bundled `brume.yml` and a
 sink-specific `.env.brume` template into the current directory. Existing files are
 kept by default (prompt to overwrite). The dedicated `.env.brume` filename avoids

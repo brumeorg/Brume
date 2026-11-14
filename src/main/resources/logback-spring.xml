@@ -46,8 +46,21 @@
     <!-- Datafaker is verbose at INFO; pin it to WARN by default. -->
     <logger name="net.datafaker" level="WARN"/>
 
+    <!-- A boot failure is reported once, by BrumeApplication.main ([CODE] message → suggestion,
+         TEXT or JSON ; [UNEXPECTED] with the stack trace when it is a bug). Spring's own report
+         ("Application run failed" + stack trace, "APPLICATION FAILED TO START" banner, condition
+         report hint) would print it a second time, naming Java classes (#17c, ADR-0061). -->
+    <logger name="org.springframework.boot.SpringApplication" level="OFF"/>
+    <logger name="org.springframework.boot.diagnostics.LoggingFailureAnalysisReporter" level="OFF"/>
+    <logger name="org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger" level="WARN"/>
+    <logger name="org.springframework.context.annotation.AnnotationConfigApplicationContext" level="ERROR"/>
+
     <!-- Suppress Hikari pool init/shutdown messages. -->
     <logger name="com.zaxxer.hikari" level="WARN"/>
+    <!-- A connection Brume aborts on purpose (signal, total-run timeout) is "marked as broken"
+         with a stack trace : noise at the exact moment the operator reads [RUN_CANCELLED] or
+         [RUN_TIMEOUT_TOTAL]. A real network failure still surfaces as a typed Brume error (#24d). -->
+    <logger name="com.zaxxer.hikari.pool.ProxyConnection" level="ERROR"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT_TEXT"/>

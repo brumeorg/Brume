@@ -27,7 +27,9 @@ import java.nio.file.Paths;
  *       (e.g. {@code fk_depth} → {@code fkDepth})</li>
  *   <li>Strategy and SemanticType enum values are case-insensitive
  *       (e.g. {@code fake}, {@code FAKE}, {@code Fake} all parse correctly)</li>
- *   <li>Unknown YAML keys are silently ignored for forward compatibility</li>
+ *   <li>Unknown YAML keys are ignored for forward compatibility, with a
+ *       {@code [CONFIG_UNKNOWN_KEY]} warning naming the key and its line (#17g) : a typo
+ *       such as {@code fk_dpeth} used to vanish without a trace</li>
  * </ul>
  *
  * <p>This class does not validate the parsed config — call
@@ -52,6 +54,7 @@ public class ConfigLoader {
                 .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
                 .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
                 .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .addHandler(new UnknownKeyWarner())
                 .addModule(new ParameterNamesModule())
                 .build();
     }
@@ -82,16 +85,82 @@ public class ConfigLoader {
                     config.extraction().tables().size(),
                     config.anonymization().tables().size());
             return config;
-        } catch (IOException e) {
+        } catch (com.fasterxml.jackson.databind.exc.InvalidFormatException e) {
+            // #17g : the raw Jackson message named Java classes and the "reference chain".
+            Class<?> type = e.getTargetType();
+            String allowed = type != null && type.isEnum()
+                    ? " Allowed values : " + java.util.Arrays.stream(type.getEnumConstants())
+                            .map(Object::toString).collect(java.util.stream.Collectors.joining(", ")) + "."
+                    : "";
             throw new ConfigurationException(
                     BrumeErrorCode.CONFIG_FILE_PARSE_ERROR,
-                    "Failed to parse config file: " + path.toAbsolutePath() + " — " + e.getMessage(),
+                    "Invalid value '" + e.getValue() + "' for " + yamlPath(e) + " in " + path.toAbsolutePath()
+                            + lineSuffix(e) + ".",
+                    "Fix the value in brume.yml." + allowed,
+                    e);
+        } catch (com.fasterxml.jackson.databind.JsonMappingException e) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_FILE_PARSE_ERROR,
+                    "Failed to parse config file: " + path.toAbsolutePath() + lineSuffix(e)
+                            + (e.getPath().isEmpty() ? "" : ", at " + yamlPath(e)) + " — " + e.getOriginalMessage(),
+                    "Re-check this entry against brume.example.yml (expected keys, lists vs maps, value types).",
+                    e);
+        } catch (IOException e) {
+            String reason = e instanceof com.fasterxml.jackson.core.JsonProcessingException jpe
+                    ? jpe.getOriginalMessage() : e.getMessage();
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_FILE_PARSE_ERROR,
+                    "Failed to parse config file: " + path.toAbsolutePath() + " — " + reason,
                     "Re-check the YAML syntax (indentation, quoting, list/map nesting) against "
                             + "the README §config.yaml example. Common causes: tabs instead of "
                             + "spaces, unquoted strings starting with reserved YAML tokens "
                             + "('on', 'off', '~'), or a missing top-level 'extraction' / "
                             + "'anonymization' section.",
                     e);
+        }
+    }
+
+    /** {@code anonymization.tables[0].columns[1].strategy}, the path a user reads in brume.yml. */
+    private static String yamlPath(com.fasterxml.jackson.databind.JsonMappingException e) {
+        StringBuilder sb = new StringBuilder();
+        for (com.fasterxml.jackson.databind.JsonMappingException.Reference ref : e.getPath()) {
+            if (ref.getFieldName() != null) {
+                if (!sb.isEmpty()) sb.append('.');
+                sb.append(PropertyNamingStrategies.SnakeCaseStrategy.INSTANCE.translate(ref.getFieldName()));
+            } else if (ref.getIndex() >= 0) {
+                sb.append('[').append(ref.getIndex()).append(']');
+            }
+        }
+        return sb.isEmpty() ? "the document" : sb.toString();
+    }
+
+    private static String lineSuffix(com.fasterxml.jackson.core.JsonProcessingException e) {
+        return e.getLocation() == null || e.getLocation().getLineNr() < 1 ? ""
+                : " (line " + e.getLocation().getLineNr() + ")";
+    }
+
+    /** Logs and skips a key the config model does not know (#17g). */
+    static final class UnknownKeyWarner extends com.fasterxml.jackson.databind.deser.DeserializationProblemHandler {
+        @Override
+        public boolean handleUnknownProperty(com.fasterxml.jackson.databind.DeserializationContext ctxt,
+                                             com.fasterxml.jackson.core.JsonParser p,
+                                             com.fasterxml.jackson.databind.JsonDeserializer<?> deserializer,
+                                             Object beanOrClass, String propertyName) throws IOException {
+            String parent = p.getParsingContext().getParent() == null ? null
+                    : p.getParsingContext().getParent().getCurrentName();
+            log.warn("[CONFIG_UNKNOWN_KEY] brume.yml{} : unknown key '{}'{} — ignored. "
+                            + "Check its spelling against brume.example.yml.",
+                    line(p), propertyName,
+                    parent == null ? "" : " under '" + parent + "'");
+            p.skipChildren();
+            return true;
+        }
+
+        private static String line(com.fasterxml.jackson.core.JsonParser p) {
+            int line = p.currentTokenLocation().getLineNr();
+            if (line < 1) line = p.currentLocation().getLineNr();
+            // Records buffer their properties : a nested key may carry no location.
+            return line < 1 ? "" : " line " + line;
         }
     }
 }

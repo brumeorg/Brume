@@ -1,5 +1,7 @@
 package com.fungle.brume.scenario;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.BrumeApplication;
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
@@ -58,14 +60,14 @@ class LinkedColumnsConsistencyIT {
     private static final Map<String, Object> PROPS = new LinkedHashMap<>(Map.ofEntries(
             Map.entry("brume.config-path", "src/test/resources/test-config-linked-columns.yaml"),
             Map.entry("brume.sink.type", "JDBC"),
-            Map.entry("replication.source.url", "jdbc:postgresql://localhost:5432/postgres"),
+            Map.entry("replication.source.url", ItDatabases.SOURCE_URL),
             Map.entry("replication.source.username", "postgres"),
             Map.entry("replication.source.password", "postgres"),
-            Map.entry("replication.target.url", "jdbc:postgresql://localhost:5460/postgres"),
+            Map.entry("replication.target.url", ItDatabases.TARGET_URL),
             Map.entry("replication.target.username", "postgres"),
             Map.entry("replication.target.password", "postgres"),
             Map.entry("replication.schema", "test_brume"),
-            Map.entry("replication.pgdump-path", "docker exec -e PGPASSWORD=postgres brume-source pg_dump"),
+            Map.entry("replication.pgdump-path", ItDatabases.PGDUMP_PATH),
             Map.entry("replication.pool-size", "3")
     ));
 

@@ -12,6 +12,7 @@ import com.fungle.brume.plan.PlanMode;
 import com.fungle.brume.writer.CompressionType;
 import com.fungle.brume.writer.CopyMode;
 import com.fungle.brume.writer.SinkType;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -458,6 +459,51 @@ class BrumePropertiesValidatorTest {
      * @param fpeKey     FPE key string (may be null)
      * @return a properties record with dummy values for other fields
      */
+    // ==================== #17d / #17g — unset settings, HMAC algorithm ====================
+
+    @Test
+    @DisplayName("#17d — unset BRUME_HMAC_SECRET (literal ${BRUME_HMAC_SECRET}, 20 bytes) is refused, "
+            + "not used as a public HMAC key")
+    void validate_rejectsUnresolvedHmacSecretPlaceholder() {
+        BrumePropertiesValidator validator = new BrumePropertiesValidator(
+                createProperties("${BRUME_HMAC_SECRET}", "0123456789abcdef"));
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("BRUME_HMAC_SECRET is missing")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.CONFIG_HMAC_SECRET_MISSING);
+    }
+
+    @Test
+    @DisplayName("#17d — unset BRUME_FPE_KEY (literal ${BRUME_FPE_KEY}, exactly 16 bytes) is refused, "
+            + "not used as an AES-128 key")
+    void validate_rejectsUnresolvedFpeKeyPlaceholder() {
+        BrumePropertiesValidator validator = new BrumePropertiesValidator(
+                createProperties("0123456789abcdef", "${BRUME_FPE_KEY}"));
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("BRUME_FPE_KEY is missing")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.CONFIG_FPE_KEY_MISSING);
+    }
+
+    @Test
+    @DisplayName("#17g — an unknown HMAC algorithm fails at boot, not on the first HASH value of execute")
+    void validate_rejectsUnknownHmacAlgorithmAtBoot() {
+        BrumePropertiesValidator validator = new BrumePropertiesValidator(new BrumeProperties(
+                "config.yaml", "0123456789abcdef", "0123456789abcdef", "HmacNope", "fr", 0.0,
+                PipelineMode.STREAMING, new BrumeProperties.SubstitutionDictProperties(1_000_000L),
+                new ReportProperties("", "", "")));
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("HmacNope")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.CONFIG_HMAC_INVALID);
+    }
+
     private BrumeProperties createProperties(String hmacSecret, String fpeKey) {
         return new BrumeProperties(
                 "config.yaml",

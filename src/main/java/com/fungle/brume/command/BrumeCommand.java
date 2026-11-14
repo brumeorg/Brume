@@ -2,6 +2,8 @@ package com.fungle.brume.command;
 
 import com.fungle.brume.audit.anonymity.AnonymityAuditSpec;
 import com.fungle.brume.audit.anonymity.AuditRunner;
+import com.fungle.brume.config.ConfigurationException;
+import com.fungle.brume.error.BrumeErrorCode;
 import com.fungle.brume.diag.DiagRunner;
 import com.fungle.brume.scan.ScanRunner;
 import com.fungle.brume.timeout.TimedReplicationRunner;
@@ -144,9 +146,16 @@ public class BrumeCommand implements Callable<Integer> {
                     paramLabel = "PATH") Path outputMarkdown
     ) {
         if (!anonymity) {
-            System.err.println("[AUDIT_KIND_REQUIRED] V1 only supports k-anonymity.");
-            System.err.println("  → Pass --anonymity to enable.");
-            return 1;
+            // #17f : printed by hand before, without exit-code line nor JSON variant.
+            throw new ConfigurationException(BrumeErrorCode.AUDIT_KIND_REQUIRED,
+                    "V1 only supports k-anonymity.", "Pass --anonymity to enable.");
+        }
+        // #17f : the help documents (0, 1] ; out-of-range values used to be silently replaced
+        // by 1.0 (full scan) in KAnonymityCalculator.
+        if (!(sampleRate > 0.0 && sampleRate <= 1.0)) {
+            throw new ConfigurationException(BrumeErrorCode.AUDIT_SAMPLE_RATE_INVALID,
+                    "--sample-rate must be in (0, 1] (got " + sampleRate + ").",
+                    "Pass a fraction such as 0.1 (10 % of each table) or omit the option for a full scan.");
         }
         Map<String, List<String>> explicit = parseQuasiIdFlags(quasiId);
         AnonymityAuditSpec spec = new AnonymityAuditSpec(
@@ -164,8 +173,7 @@ public class BrumeCommand implements Callable<Integer> {
         for (String raw : flags) {
             int sep = raw.indexOf(':');
             if (sep <= 0 || sep == raw.length() - 1) {
-                throw new IllegalArgumentException(
-                        "Invalid --quasi-id value: '" + raw + "'. Expected 'table:col1,col2,...'.");
+                throw invalidQuasiId("Invalid --quasi-id value: '" + raw + "'. Expected 'table:col1,col2,...'.");
             }
             String table = raw.substring(0, sep).trim();
             String colsRaw = raw.substring(sep + 1);
@@ -175,12 +183,17 @@ public class BrumeCommand implements Callable<Integer> {
                 if (!trimmed.isEmpty()) cols.add(trimmed);
             }
             if (cols.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "Invalid --quasi-id value: '" + raw + "' has no column after the colon.");
+                throw invalidQuasiId("Invalid --quasi-id value: '" + raw + "' has no column after the colon.");
             }
             out.put(table, cols);
         }
         return out;
+    }
+
+    /** #17f : a malformed --quasi-id was an IllegalArgumentException, reported as [UNEXPECTED] exit 127. */
+    private static ConfigurationException invalidQuasiId(String message) {
+        return new ConfigurationException(BrumeErrorCode.AUDIT_QUASI_ID_INVALID, message,
+                "Repeat --quasi-id once per table, e.g. --quasi-id users:birth_date,zip_code.");
     }
 
     @Override

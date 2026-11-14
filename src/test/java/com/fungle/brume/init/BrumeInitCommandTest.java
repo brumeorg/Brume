@@ -31,7 +31,7 @@ class BrumeInitCommandTest {
     void createsJdbcMode(@TempDir Path tmp) throws IOException {
         FakePrompter prompter = new FakePrompter(List.of("", ""));
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -49,7 +49,7 @@ class BrumeInitCommandTest {
     void createsDumpMode(@TempDir Path tmp) throws IOException {
         FakePrompter prompter = new FakePrompter(List.of("", ""));
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -67,7 +67,7 @@ class BrumeInitCommandTest {
         FakePrompter prompter = new FakePrompter(List.of("", ""));
         prompter.chosenMode = InitPrompter.Mode.DUMP;
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -81,7 +81,7 @@ class BrumeInitCommandTest {
     void skipsWhenUserSaysNo(@TempDir Path tmp) {
         FakePrompter prompter = new FakePrompter(List.of("n", "n"));
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -98,7 +98,7 @@ class BrumeInitCommandTest {
         Files.writeString(tmp.resolve(".env.brume"), "existing env");
         FakePrompter prompter = new FakePrompter(List.of("", ""));
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -115,7 +115,7 @@ class BrumeInitCommandTest {
         Files.writeString(tmp.resolve(".env.brume"), "existing env");
         FakePrompter prompter = new FakePrompter(List.of("y", "y"));
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -133,7 +133,7 @@ class BrumeInitCommandTest {
         prompter.forceNoTty = true;
 
         BrumeInitCommand cmd = new BrumeInitCommand(
-                fakePgDumpFound17(),
+                fakePgDumpFound18(),
                 new OsDetector(),
                 new InitFileWriter(tmp),
                 prompter);
@@ -160,8 +160,8 @@ class BrumeInitCommandTest {
     }
 
     @Test
-    @DisplayName("warns when pg_dump version is below 17")
-    void warnsWhenPgDumpTooOld(@TempDir Path tmp) {
+    @DisplayName("ADR-0058 — pg_dump between 12 and 17 is accepted but the recommended 18 is suggested")
+    void acceptsSupportedButOlderPgDumpWithRecommendation(@TempDir Path tmp) {
         FakePrompter prompter = new FakePrompter(List.of("", ""));
         BrumeInitCommand cmd = new BrumeInitCommand(
                 fakePgDump(new PgDumpChecker.Result(true, Optional.of(15),
@@ -171,12 +171,30 @@ class BrumeInitCommandTest {
                 prompter);
 
         assertThat(cmd.runInit(InitPrompter.Mode.JDBC)).isEqualTo(0);
-        assertThat(prompter.warnings).anyMatch(m -> m.contains("pg_dump 15 detected"));
+        assertThat(prompter.messages).anyMatch(m -> m.contains("✓ pg_dump 15 detected"));
+        assertThat(prompter.warnings).anyMatch(m -> m.contains("up to PostgreSQL 15")
+                && m.contains("Install pg_dump 18"));
     }
 
-    private static PgDumpChecker fakePgDumpFound17() {
-        return fakePgDump(new PgDumpChecker.Result(true, Optional.of(17),
-                Optional.of("pg_dump (PostgreSQL) 17.0")));
+    @Test
+    @DisplayName("ADR-0058 — warns when pg_dump is below the supported floor (12)")
+    void warnsWhenPgDumpBelowFloor(@TempDir Path tmp) {
+        FakePrompter prompter = new FakePrompter(List.of("", ""));
+        BrumeInitCommand cmd = new BrumeInitCommand(
+                fakePgDump(new PgDumpChecker.Result(true, Optional.of(11),
+                        Optional.of("pg_dump (PostgreSQL) 11.22"))),
+                new OsDetector(),
+                new InitFileWriter(tmp),
+                prompter);
+
+        assertThat(cmd.runInit(InitPrompter.Mode.JDBC)).isEqualTo(0);
+        assertThat(prompter.warnings).anyMatch(m -> m.contains("pg_dump 11 detected")
+                && m.contains("at least 12"));
+    }
+
+    private static PgDumpChecker fakePgDumpFound18() {
+        return fakePgDump(new PgDumpChecker.Result(true, Optional.of(18),
+                Optional.of("pg_dump (PostgreSQL) 18.6")));
     }
 
     private static PgDumpChecker fakePgDump(PgDumpChecker.Result result) {

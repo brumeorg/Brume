@@ -31,12 +31,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * #25 / A19 — IT validating the resume mechanism end-to-end against Docker.
  *
- * <p>Setup : a pre-populated checkpoint file is seeded with {@code completedTables:
- * [users, products]} pointing at the current {@code config.yaml}. {@code brume
- * execute} is then run with checkpoint enabled. The expectation : the target
- * receives <strong>only</strong> the remaining tables ({@code orders},
- * {@code order_items}), proving that the resume path actually skips the completed
- * ones.
+ * <p>Until #25i / #25j these tests asserted the defect : a "completed" table ended with
+ * 0 rows on the target, because every run started with {@code DROP SCHEMA CASCADE} and the
+ * checkpoint then skipped the table. They now assert the contract of a resume : what the
+ * interrupted run wrote is kept, the rest is written, the checkpoint disappears with success.
  *
  * <p>This is the most realistic "crash simulation" we can run in CI without
  * killing the JVM mid-run : we materialize the state a real crash would have
@@ -53,10 +51,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         "brume.config-path=src/test/resources/test-config-integration.yaml",
         "brume.sink.type=JDBC",
         "brume.checkpoint.enabled=true",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres",
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}",
         "replication.schema=test_brume",
-        "replication.pgdump-path=docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+        "replication.pgdump-path=${it.db.pgdump-path}",
         "replication.pool-size=3"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -102,89 +100,62 @@ class ResumeAfterCrashIT {
     }
 
     @Test
-    @DisplayName("resume skips an explicitly-configured table marked completed in the checkpoint")
-    void resumeSkipsCompletedTable() throws Exception {
-        // Seed a checkpoint marking 'order_items' as already done — as if a previous
-        // run crashed right after writing it. The extraction config declares
-        // [orders, order_items], so seeding order_items models a late crash.
-        // (We seed an explicitly-configured table rather than an FK-parent table
-        // because the parent-skip pathway would otherwise leave the target empty
-        // of parent rows after the DROP SCHEMA at @BeforeEach.)
-        String currentConfigHash = ConfigHash.of(
-                Path.of("src/test/resources/test-config-integration.yaml"));
-        CheckpointState seed = CheckpointState
-                .initial(UUID.randomUUID().toString(), "test_brume", currentConfigHash, Instant.now())
-                .withTableCompleted("order_items", Instant.now());
-        new CheckpointStore(checkpointPath, objectMapper).write(seed);
+    @DisplayName("#25j — resume keeps what the interrupted run wrote : no DDL replay, written table skipped, "
+            + "the rest completed")
+    void resumeKeepsWrittenTablesAndCompletesTheRest() throws Exception {
+        // A full run materializes the target the interrupted run would have left behind.
+        agent.run(CommandEnum.EXECUTE);
+        long orders = rowCount("orders");
+        assertThat(orders).isPositive();
+        // "Crash" after 'orders' : its rows are on the target (one tagged to detect a rewrite),
+        // 'order_items' was never written.
+        targetJdbc.execute("UPDATE test_brume.orders SET notes = 'written-before-the-crash' "
+                + "WHERE id = (SELECT min(id) FROM test_brume.orders)");
+        targetJdbc.execute("DELETE FROM test_brume.order_items");
+        seedCheckpoint("orders");
 
         agent.run(CommandEnum.EXECUTE);
 
-        // 'orders' is processed normally — its FK parents (users, products) are
-        // pulled by FkParentResolver and written too.
-        assertThat(rowCount("orders"))
-                .as("'orders' is processed → rows written")
-                .isGreaterThan(0);
-        assertThat(rowCount("users"))
-                .as("'users' (FK parent of orders) → rows written via FkParentResolver")
-                .isGreaterThan(0);
-
-        // 'order_items' is in completedTables → skipped → 0 rows on target.
-        assertThat(rowCount("order_items"))
-                .as("'order_items' was in completedTables → must be skipped → 0 rows on target")
-                .isZero();
-
-        // The checkpoint now contains both 'order_items' (seeded) and 'orders'
-        // (newly completed). Order : seed first, then newly added.
-        CheckpointState reloaded = new CheckpointStore(checkpointPath, objectMapper)
-                .read().orElseThrow();
-        assertThat(reloaded.completedTables())
-                .as("after resume, the checkpoint reflects the seeded skip + newly-completed table")
-                .containsExactlyInAnyOrder("order_items", "orders");
+        assertThat(rowCount("orders")).as("'orders' kept as written — not dropped by a DDL replay").isEqualTo(orders);
+        assertThat(targetJdbc.queryForObject("SELECT count(*) FROM test_brume.orders "
+                + "WHERE notes = 'written-before-the-crash'", Long.class))
+                .as("'orders' was skipped, not rewritten").isEqualTo(1L);
+        assertThat(rowCount("order_items")).as("the remaining table is written").isPositive();
+        assertThat(checkpointPath).as("#25i — the checkpoint is removed once the resumed run completes").doesNotExist();
     }
 
     @Test
-    @DisplayName("resume skip applies to FK-parent writes when the parent is in completedTables")
-    void resumeSkipsParentWritesForCompletedParent() throws Exception {
-        // Seed 'orders' as completed. The extraction config processes order_items,
-        // which would normally pull 'orders' rows as FK parents via
-        // FkParentResolver → the parent-skip pathway must short-circuit that.
-        // Note : in a realistic crash scenario, 'orders' would already be on the
-        // target from the first run. Here we DROP SCHEMA at @BeforeEach, so we
-        // additionally verify that the parent-skip avoids re-extracting / re-
-        // writing — but order_items inserts will fail their FK because parent
-        // rows are missing. We catch the expected failure and assert on it.
+    @DisplayName("#25i — a successful run removes its checkpoint : the next execute skips nothing")
+    void successfulRunRemovesTheCheckpoint() throws Exception {
+        agent.run(CommandEnum.EXECUTE);
+
+        assertThat(checkpointPath).doesNotExist();
+        targetJdbc.execute("DELETE FROM test_brume.order_items");
+
+        agent.run(CommandEnum.EXECUTE);
+
+        assertThat(rowCount("order_items")).as("second run writes every table again").isPositive();
+    }
+
+    @Test
+    @DisplayName("#25j — checkpoint listing written tables but target schema gone : fresh run, nothing skipped")
+    void resumeWithoutTargetSchemaStartsFresh() throws Exception {
+        seedCheckpoint("order_items"); // target schema dropped by @BeforeEach
+
+        agent.run(CommandEnum.EXECUTE);
+
+        assertThat(rowCount("orders")).isPositive();
+        assertThat(rowCount("order_items")).as("not skipped : its rows were lost with the schema").isPositive();
+        assertThat(checkpointPath).doesNotExist();
+    }
+
+    private void seedCheckpoint(String... completed) throws Exception {
         String hash = ConfigHash.of(Path.of("src/test/resources/test-config-integration.yaml"));
-        CheckpointState seed = CheckpointState
-                .initial(UUID.randomUUID().toString(), "test_brume", hash, Instant.now())
-                .withTableCompleted("orders", Instant.now());
+        CheckpointState seed = CheckpointState.initial(UUID.randomUUID().toString(), "test_brume", hash, Instant.now());
+        for (String table : completed) {
+            seed = seed.withTableCompleted(table, Instant.now());
+        }
         new CheckpointStore(checkpointPath, objectMapper).write(seed);
-
-        // The run will fail at order_items insert (FK violation on orders) — that
-        // is the correct semantic, the test only asserts the parent-skip fired.
-        // We catch the exception ; what matters is the row counts AFTER.
-        try { agent.run(CommandEnum.EXECUTE); } catch (Exception expected) { /* */ }
-
-        assertThat(rowCount("orders"))
-                .as("'orders' is in completedTables AND its parent-write was skipped → 0 rows on target")
-                .isZero();
-    }
-
-    @Test
-    @DisplayName("fresh run with checkpoint enabled records the explicitly-configured tables")
-    void freshRunPersistsCheckpoint() throws Exception {
-        // No seed — fresh start with checkpoint enabled.
-        agent.run(CommandEnum.EXECUTE);
-
-        // V1 records ONLY the tables declared in extraction.tables of the config —
-        // FK-parent tables pulled in by FkParentResolver are NOT marked. The
-        // test-config-integration.yaml declares 'orders' + 'order_items'.
-        // Topological order from #25c gives orders before order_items (orders is
-        // the FK parent of order_items.order_id).
-        CheckpointState reloaded = new CheckpointStore(checkpointPath, objectMapper)
-                .read().orElseThrow();
-        assertThat(reloaded.completedTables())
-                .as("fresh run should record only the explicitly-configured tables in topological order")
-                .containsExactly("orders", "order_items");
     }
 
     private long rowCount(String table) {

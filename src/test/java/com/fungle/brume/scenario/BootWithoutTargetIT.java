@@ -1,5 +1,7 @@
 package com.fungle.brume.scenario;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.BrumeApplication;
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
@@ -38,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class BootWithoutTargetIT {
 
-    private static final String SOURCE_URL = "jdbc:postgresql://localhost:5432/postgres";
+    private static final String SOURCE_URL = ItDatabases.SOURCE_URL;
     private static final String SOURCE_USER = "postgres";
     private static final String SOURCE_PASS = "postgres";
     private static final String SCHEMA = "test_brume";
@@ -145,7 +147,7 @@ class BootWithoutTargetIT {
         props.put("replication.source.username", SOURCE_USER);
         props.put("replication.source.password", SOURCE_PASS);
         props.put("replication.schema", SCHEMA);
-        props.put("replication.pgdump-path", "docker exec -e PGPASSWORD=postgres brume-source pg_dump");
+        props.put("replication.pgdump-path", ItDatabases.PGDUMP_PATH);
         props.put("replication.pool-size", "3");
         return props;
     }

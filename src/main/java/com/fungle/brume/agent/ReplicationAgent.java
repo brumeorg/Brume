@@ -107,6 +107,7 @@ public class ReplicationAgent {
     private final HeapMonitor heapMonitor;
     private final ObjectMapper objectMapper;
     private final PreflightCheckRunner preflightCheckRunner;
+    private final com.fungle.brume.preflight.ExtractionFilterProbe extractionFilterProbe;
     private final CancellationToken cancellationToken;
     private final CheckpointService checkpointService;
     private final ExecutionStateWriter executionStateWriter;
@@ -155,7 +156,8 @@ public class ReplicationAgent {
             PreflightCheckRunner preflightCheckRunner,
             CancellationToken cancellationToken,
             CheckpointService checkpointService,
-            ExecutionStateWriter executionStateWriter) {
+            ExecutionStateWriter executionStateWriter,
+            com.fungle.brume.preflight.ExtractionFilterProbe extractionFilterProbe) {
         this.schemaReplicator = schemaReplicator;
         this.configLoader = configLoader;
         this.configValidator = configValidator;
@@ -180,6 +182,7 @@ public class ReplicationAgent {
         this.cancellationToken = cancellationToken;
         this.checkpointService = checkpointService;
         this.executionStateWriter = executionStateWriter;
+        this.extractionFilterProbe = extractionFilterProbe;
     }
 
     /**
@@ -221,30 +224,8 @@ public class ReplicationAgent {
             log.info("Config loaded and validated successfully");
 
             preflightCheckRunner.run();
-            cancellationToken.checkpoint();
-
-            if (brumeProperties.sink().type() == com.fungle.brume.writer.SinkType.JDBC) {
-                ReplicationProperties.Source source = replicationProperties.source();
-                DataSource targetDs = targetDataSource.orElseThrow(() -> new IllegalStateException(
-                        "targetDataSource bean is required for sink.type=JDBC but was not wired. "
-                                + "This indicates a misconfiguration of DataSourceConfig (see ADR-0028)."));
-                com.fungle.brume.report.DdlExecutionResult ddlResult = schemaReplicator.replicate(
-                        source.url(),
-                        source.username(),
-                        source.password(),
-                        replicationProperties.schema(),
-                        targetDs
-                );
-                report.captureDdlExecution(ddlResult);
-                if (ddlResult.ignored() > 0) {
-                    log.warn("DDL phase ignored {} statement(s) under LENIENT mode — see rapport for details (#28/A17)",
-                            ddlResult.ignored());
-                }
-            } else {
-                log.info("Sink mode is {} — skipping target schema replication; DDL will be written into the dump file",
-                        brumeProperties.sink().type());
-            }
-
+            // #17e : before the DDL replication, so a bad filter leaves the target untouched.
+            extractionFilterProbe.check(replicationProperties.schema(), config.extraction().tables());
             cancellationToken.checkpoint();
 
             DatabaseSchema schema = schemaAnalyzer.analyze(replicationProperties.schema());
@@ -304,13 +285,52 @@ public class ReplicationAgent {
                     planSummary.totalPlanned(), planSummary.tableStats().size());
 
             enforceMaxTargetRows(planSummary);
+
+            // DDL replication only once the run is accepted (#17e) : config validation, filter
+            // and schema checks, plan and max-target-rows all read the source. Before, a run refused
+            // by them left empty tables on the target.
+            checkpointService.boot(schema);
+
+            boolean jdbcSink = brumeProperties.sink().type() == com.fungle.brume.writer.SinkType.JDBC;
+            if (jdbcSink && checkpointService.isResuming()
+                    && !targetSchemaExists(targetDataSource.orElseThrow(), replicationProperties.schema())) {
+                log.warn("Checkpoint lists written tables but target schema '{}' is gone — starting fresh",
+                        replicationProperties.schema());
+                checkpointService.startFresh();
+            }
+            if (jdbcSink && checkpointService.isResuming()) {
+                // #25j : the replication starts with DROP SCHEMA CASCADE — it erased the tables the
+                // interrupted run had written, which the checkpoint then skipped : they ended empty.
+                log.info("Resuming an interrupted run : target schema '{}' kept, {} written table(s) skipped",
+                        replicationProperties.schema(), checkpointService.currentState().completedTables().size());
+            } else if (jdbcSink) {
+                ReplicationProperties.Source source = replicationProperties.source();
+                DataSource targetDs = targetDataSource.orElseThrow(() -> new IllegalStateException(
+                        "targetDataSource bean is required for sink.type=JDBC but was not wired. "
+                                + "This indicates a misconfiguration of DataSourceConfig (see ADR-0028)."));
+                com.fungle.brume.report.DdlExecutionResult ddlResult = schemaReplicator.replicate(
+                        source.url(),
+                        source.username(),
+                        source.password(),
+                        replicationProperties.schema(),
+                        targetDs
+                );
+                report.captureDdlExecution(ddlResult);
+                if (ddlResult.ignored() > 0) {
+                    log.warn("DDL phase ignored {} statement(s) under LENIENT mode — see rapport for details (#28/A17)",
+                            ddlResult.ignored());
+                }
+            } else {
+                log.info("Sink mode is {} — skipping target schema replication; DDL will be written into the dump file",
+                        brumeProperties.sink().type());
+            }
+
+            cancellationToken.checkpoint();
             heapMonitor.sample(report, "plan-ready");
 
             long extractionMs;
             long anonymizationMs;
             long writeMs;
-
-            checkpointService.boot(schema);
 
             if (brumeProperties.sink().stripTimestamps()) {
                 warnTablesWithoutSinglePk(config, schema);
@@ -325,11 +345,7 @@ public class ReplicationAgent {
                 writeMs = 0L;
                 heapMonitor.sample(report, "streaming-finished");
             } else {
-                if (brumeProperties.checkpoint().enabled()) {
-                    log.warn("Pipeline mode BATCH does not support --resume in V1 (tracked in "
-                            + "#25h). The checkpoint will not be read or written — running a full "
-                            + "extract/anonymize/write cycle.");
-                }
+                // Checkpoint with BATCH : CheckpointService.boot warned and stays inactive (#25h).
                 log.info("Pipeline mode: BATCH");
                 long extractStart = System.currentTimeMillis();
                 OrderedExtractionResult extracted = extractionEngine.extract(config, schema, report);
@@ -372,6 +388,7 @@ public class ReplicationAgent {
 
             if (command == CommandEnum.EXECUTE) {
                 executionStateWriter.write(config, replicationProperties.schema());
+                checkpointService.complete();
             }
 
             log.info("Brume pipeline completed in {} ms", elapsed);
@@ -403,6 +420,22 @@ public class ReplicationAgent {
      * machine-readable contract; if it can't be produced, the caller (script) sees an empty
      * stdout and the error on stderr.
      */
+    private static boolean targetSchemaExists(DataSource target, String schema) {
+        try (java.sql.Connection c = target.getConnection();
+             java.sql.PreparedStatement ps = c.prepareStatement(
+                     "SELECT 1 FROM information_schema.schemata WHERE schema_name = ?")) {
+            ps.setString(1, schema);
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (java.sql.SQLException e) {
+            throw new com.fungle.brume.error.ConnectionException(
+                    com.fungle.brume.error.BrumeErrorCode.CONNECTION_TARGET_UNREACHABLE,
+                    "Target database unreachable while checking the schema to resume: " + e.getMessage(),
+                    "Verify replication.target.url, credentials, and network reachability.", e);
+        }
+    }
+
     private void emitJsonOutput(BrumeJsonOutput wrapper) {
         try {
             String json = objectMapper.writeValueAsString(wrapper);

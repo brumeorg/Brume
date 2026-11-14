@@ -59,6 +59,7 @@ public class SchemaReplicator {
 
     private final String pgDumpPath;
     private final int pgdumpTimeoutSeconds;
+    private volatile String pgDumpVersionLine;
     private final ReplicationProperties.DdlErrorMode ddlErrorMode;
     private final ReplicationProperties.Source source;
     private final boolean ddlCacheEnabled;
@@ -143,7 +144,7 @@ public class SchemaReplicator {
      * skipped entirely (B14).
      *
      * @param schema the source schema name to dump
-     * @return the full DDL output of {@code pg_dump --schema-only}
+     * @return the DDL output of {@code pg_dump --schema-only}, sanitized by {@link PgDumpDdlSanitizer}
      * @throws IOException if the {@code pg_dump} subprocess cannot be started or its output cannot be read
      * @throws InterruptedException if the current thread is interrupted while waiting for {@code pg_dump}
      */
@@ -160,6 +161,13 @@ public class SchemaReplicator {
      */
     private String dumpSchemaCached(String sourceUrl, String user, String password, String schema)
             throws IOException, InterruptedException {
+        // Single exit point for every DDL consumer (JDBC replay, dump sink) : strip what an
+        // older server / psql cannot replay (ADR-0058). The cache stores raw pg_dump output.
+        return PgDumpDdlSanitizer.sanitize(rawDumpSchemaCached(sourceUrl, user, password, schema));
+    }
+
+    private String rawDumpSchemaCached(String sourceUrl, String user, String password, String schema)
+            throws IOException, InterruptedException {
         if (!ddlCacheEnabled) {
             lastDumpWasCached = false;
             return dumpSchema(sourceUrl, user, password, schema);
@@ -175,7 +183,7 @@ public class SchemaReplicator {
             return dumpSchema(sourceUrl, user, password, schema);
         }
 
-        Path cacheFile = cacheFileFor(sourceUrl, schema, fingerprint);
+        Path cacheFile = cacheFileFor(sourceUrl, schema, fingerprint, pgDumpVersion());
         if (Files.isRegularFile(cacheFile)) {
             try {
                 String cached = Files.readString(cacheFile, StandardCharsets.UTF_8);
@@ -249,10 +257,45 @@ public class SchemaReplicator {
         }
     }
 
-    private static Path cacheFileFor(String sourceUrl, String schema, String fingerprint) {
+    /**
+     * Full first line of {@code <pgdump-path> --version}, memoized ; {@code "unknown"} when it
+     * cannot be read (the dump itself will then surface the real error).
+     */
+    private String pgDumpVersion() {
+        if (pgDumpVersionLine != null) {
+            return pgDumpVersionLine;
+        }
+        List<String> cmd = new ArrayList<>();
+        for (String token : pgDumpPath.split("\\s+")) {
+            if (!token.isBlank()) cmd.add(token);
+        }
+        cmd.add("--version");
+        String version = "unknown";
+        try {
+            Process p = new ProcessBuilder(SubprocessArgs.portable(cmd)).redirectErrorStream(true).start();
+            String out = readOutputWithTimeout(p, 10);
+            if (p.exitValue() == 0 && !out.isBlank()) {
+                version = out.strip().lines().findFirst().orElse("unknown");
+            }
+        } catch (IOException | RuntimeException e) {
+            log.warn("SchemaReplicator: cannot read pg_dump --version for the DDL cache key: {}", e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        pgDumpVersionLine = version;
+        return version;
+    }
+
+    /**
+     * Cache key = sha256(sourceUrl|schema|fingerprint|pgDumpVersion). The full
+     * {@code pg_dump --version} line is part of the key because the DDL changes with the
+     * client binary, even across minors (e.g. {@code \restrict} since 17.6) — ADR-0058 Q5.
+     */
+    static Path cacheFileFor(String sourceUrl, String schema, String fingerprint, String pgDumpVersion) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            md.update((sourceUrl + "|" + schema + "|" + fingerprint).getBytes(StandardCharsets.UTF_8));
+            md.update((sourceUrl + "|" + schema + "|" + fingerprint + "|" + pgDumpVersion)
+                    .getBytes(StandardCharsets.UTF_8));
             String hash = HexFormat.of().formatHex(md.digest());
             return DDL_CACHE_DIR.resolve(hash + ".sql");
         } catch (NoSuchAlgorithmException e) {
@@ -281,6 +324,9 @@ public class SchemaReplicator {
                 "--schema-only",
                 "--no-owner",
                 "--no-privileges",
+                // Recommended by the pg_dump docs for cross-version restores : reserved-word
+                // lists differ between PostgreSQL majors (ADR-0058).
+                "--quote-all-identifiers",
                 // -n takes a pattern : unquoted, it is folded to lower case and '*', '?', '.'
                 // are special. Quoted, it matches the schema name exactly (#26c).
                 "-n", SqlIdentifiers.quote(schema),

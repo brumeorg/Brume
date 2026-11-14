@@ -55,11 +55,20 @@ class PagilaE2E {
         recreatePagilaDatabase(E2eSettings.target());
         String schema;
         try (InputStream in = Psql.open(PAGILA.resolve("pagila-schema.sql.gz"))) {
-            // uuidv7() only exists from PostgreSQL 18 ; the data sets every uuid explicitly.
-            schema = new String(in.readAllBytes(), StandardCharsets.UTF_8).replace("uuidv7()", "gen_random_uuid()");
+            // uuidv7() only exists from PostgreSQL 18 and gen_random_uuid() from 13 (ADR-0060 :
+            // the e2e runs on 12 → 18). md5(random()::text)::uuid exists everywhere ; the data
+            // sets every uuid explicitly, so the default is never used.
+            schema = new String(in.readAllBytes(), StandardCharsets.UTF_8)
+                    .replace("uuidv7()", "md5(random()::text)::uuid");
         }
         assertThat(Psql.run(sourceDb, schema, "pagila-schema.sql")).as("schema load errors").isEmpty();
-        assertThat(Psql.run(sourceDb, PAGILA.resolve("pagila-data.sql.gz"))).as("data load errors").isEmpty();
+        String data;
+        try (InputStream in = Psql.open(PAGILA.resolve("pagila-data.sql.gz"))) {
+            // The upstream data dump comes from pg_dump ≥ 17 : SET transaction_timeout is unknown
+            // to servers ≤ 16 (ADR-0058). Brume's own dumps strip it ; this third-party fixture does not.
+            data = new String(in.readAllBytes(), StandardCharsets.UTF_8).replace("SET transaction_timeout = 0;\n", "");
+        }
+        assertThat(Psql.run(sourceDb, data, "pagila-data.sql")).as("data load errors").isEmpty();
         source = sourceDb.jdbc();
         target = targetDb.jdbc();
     }
@@ -268,7 +277,10 @@ class PagilaE2E {
 
     private static void recreatePagilaDatabase(E2eSettings.Db server) {
         JdbcTemplate admin = server.jdbc();
-        admin.execute("DROP DATABASE IF EXISTS pagila WITH (FORCE)");
+        // DROP DATABASE … WITH (FORCE) only exists from PostgreSQL 13 : close the sessions first.
+        admin.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                + "WHERE datname = 'pagila' AND pid <> pg_backend_pid()");
+        admin.execute("DROP DATABASE IF EXISTS pagila");
         admin.execute("CREATE DATABASE pagila");
     }
 }

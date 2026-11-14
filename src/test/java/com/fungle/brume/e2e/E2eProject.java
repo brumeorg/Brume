@@ -67,6 +67,19 @@ final class E2eProject {
         return result;
     }
 
+    /** Starts {@code brume <args>} in the background ; log it with {@link #log} once awaited. */
+    BrumeCli.Running start(String... args) {
+        return cli.start(args);
+    }
+
+    /** Logs the result of a background run like {@link #run} does. */
+    BrumeCli.Result log(BrumeCli.Result result, String... args) {
+        String name = String.format("%02d-brume-%s.log", ++commands,
+                String.join("-", args).replace("--", "").replaceAll("[^A-Za-z0-9._=-]", "_"));
+        write(name, "$ brume " + String.join(" ", args) + " (signalled)\n" + result.describe());
+        return result;
+    }
+
     /** Sets a variable of the binary's process environment (not of {@code .env.brume}). */
     void processEnv(String key, String value) {
         cli.putEnv(key, value);
@@ -129,6 +142,27 @@ final class E2eProject {
             lines.removeIf(line -> line.startsWith(key + "="));
             lines.add(key + "=" + value);
             Files.write(file(".env.brume"), lines, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Removes every {@code key=…} line of {@code .env.brume} — a setting the user forgot. */
+    void removeEnv(String key) {
+        try {
+            List<String> lines = new ArrayList<>(Files.readAllLines(file(".env.brume"), StandardCharsets.UTF_8));
+            lines.removeIf(line -> line.startsWith(key + "="));
+            Files.write(file(".env.brume"), lines, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** Appends a raw line to {@code .env.brume}, even a duplicated or malformed one. */
+    void appendEnvLine(String line) {
+        try {
+            Files.writeString(file(".env.brume"), line + "\n", StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.APPEND);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

@@ -48,6 +48,10 @@ public class DataSourceConfig {
         config.setPassword(source.password());
         config.setDriverClassName("org.postgresql.Driver");
         config.setMaximumPoolSize(replicationProperties.poolSize());
+        // No idle connection kept ready (#75a) : with minimumIdle = maximumPoolSize (Hikari
+        // default) the housekeeper opened connections right after boot, so `brume diag`,
+        // documented as never contacting the databases, did. Connections now open on demand.
+        config.setMinimumIdle(0);
         // Lazy init (#19/A13): without this, Hikari opens a probe connection during bean
         // construction and a wrong URL makes Spring context startup fail with a Hikari
         // stack trace — short-circuiting the preflight runner that exists precisely to
@@ -73,6 +77,10 @@ public class DataSourceConfig {
         config.setPassword(target.password());
         config.setDriverClassName("org.postgresql.Driver");
         config.setMaximumPoolSize(replicationProperties.poolSize());
+        // No idle connection kept ready (#75a) : with minimumIdle = maximumPoolSize (Hikari
+        // default) the housekeeper opened connections right after boot, so `brume diag`,
+        // documented as never contacting the databases, did. Connections now open on demand.
+        config.setMinimumIdle(0);
         // Lazy init — cf. sourceDataSource() above.
         config.setInitializationFailTimeout(-1);
         return new CancellableDataSource(new HikariDataSource(config), cancellationRegistry);

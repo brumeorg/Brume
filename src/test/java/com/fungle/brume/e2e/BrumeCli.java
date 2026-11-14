@@ -45,7 +45,62 @@ final class BrumeCli {
         extraEnv.put(key, value);
     }
 
+    /** A run started in the background, to be signalled then awaited (ADR-0062, lot B). */
+    final class Running {
+        private final Process process;
+        private final Drain out;
+        private final Drain err;
+
+        private Running(Process process, Drain out, Drain err) {
+            this.process = process;
+            this.out = out;
+            this.err = err;
+        }
+
+        long pid() {
+            return process.pid();
+        }
+
+        /** Sends {@code signal} (TERM, INT…) the way {@code docker stop} or Ctrl-C would. */
+        void signal(String signal) {
+            try {
+                Process kill = new ProcessBuilder("kill", "-" + signal, String.valueOf(process.pid()))
+                        .inheritIO().start();
+                if (kill.waitFor() != 0) {
+                    throw new AssertionError("kill -" + signal + " " + process.pid() + " failed");
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
+
+        String stdoutSoFar() {
+            return out.text();
+        }
+
+        Result await() {
+            try {
+                if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    throw new AssertionError("brume did not exit within " + TIMEOUT_SECONDS + "s.\n--- stdout ---\n"
+                            + out.text() + "\n--- stderr ---\n" + err.text());
+                }
+                return new Result(process.exitValue(), out.awaitText(), err.awaitText());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
+    }
+
     Result run(String... args) {
+        return start(args).await();
+    }
+
+    Running start(String... args) {
         List<String> cmd = new ArrayList<>();
         if (binary.toString().endsWith(".jar")) {
             cmd.add(Paths.get(System.getProperty("java.home"), "bin", "java").toString());
@@ -62,17 +117,9 @@ final class BrumeCli {
             process.getOutputStream().close(); // no TTY, EOF on any prompt
             Drain out = Drain.start(process.getInputStream(), "brume-e2e-stdout");
             Drain err = Drain.start(process.getErrorStream(), "brume-e2e-stderr");
-            if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                throw new AssertionError("brume " + String.join(" ", args) + " did not exit within "
-                        + TIMEOUT_SECONDS + "s.\n--- stdout ---\n" + out.text() + "\n--- stderr ---\n" + err.text());
-            }
-            return new Result(process.exitValue(), out.awaitText(), err.awaitText());
+            return new Running(process, out, err);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot start " + cmd, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
         }
     }
 

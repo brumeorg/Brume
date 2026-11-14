@@ -1,5 +1,7 @@
 package com.fungle.brume.replicator;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.config.ReplicationProperties;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -48,7 +50,7 @@ class SchemaReplicatorCacheIT {
     @BeforeAll
     static void setUpDataSource() {
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:postgresql://localhost:5432/postgres");
+        config.setJdbcUrl(ItDatabases.SOURCE_URL);
         config.setUsername("postgres");
         config.setPassword("postgres");
         config.setMaximumPoolSize(3);
@@ -78,15 +80,15 @@ class SchemaReplicatorCacheIT {
     private SchemaReplicator newReplicator(boolean ddlCache) {
         var props = new ReplicationProperties(
                 SCHEMA,
-                "docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+                ItDatabases.PGDUMP_PATH,
                 60,
                 ReplicationProperties.DdlErrorMode.STRICT,
                 3,
                 3,
                 new ReplicationProperties.Source(
-                        "jdbc:postgresql://localhost:5432/postgres", "postgres", "postgres"),
+                        ItDatabases.SOURCE_URL, "postgres", "postgres"),
                 new ReplicationProperties.Target(
-                        "jdbc:postgresql://localhost:5460/postgres", "postgres", "postgres"),
+                        ItDatabases.TARGET_URL, "postgres", "postgres"),
                 ddlCache);
         return new SchemaReplicator(props, new com.fungle.brume.shutdown.CancellationRegistry(new com.fungle.brume.shutdown.CancellationToken()));
     }

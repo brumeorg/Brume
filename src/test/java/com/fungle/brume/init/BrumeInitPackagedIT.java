@@ -90,8 +90,8 @@ class BrumeInitPackagedIT {
     }
 
     @Test
-    @DisplayName("`brume init foo` fails with picocli exit code 2 (unmatched argument)")
-    void initWithUnknownSubcommandExitsTwo(@TempDir Path cwd) throws Exception {
+    @DisplayName("`brume init foo` fails with CONFIG_CLI_USAGE, exit code 1, listing jdbc and dump (ADR-0061 ; was 2)")
+    void initWithUnknownSubcommandExitsOne(@TempDir Path cwd) throws Exception {
         Path jar = locateUniqueRepackagedJar();
         Assumptions.assumeTrue(jar != null,
                 "Skipped — repackaged jar not found in target/. Run `./mvnw package -DskipTests` first.");
@@ -99,13 +99,15 @@ class BrumeInitPackagedIT {
         RunResult result = runInit(jar, cwd, "init", "foo");
 
         assertThat(result.exitCode)
-                .as("unknown subcommand must return picocli's standard exit code 2. Output:\n%s",
+                .as("a command-line error belongs to the configuration family (exit 1, ADR-0061). Output:\n%s",
                         result.outputJoined())
-                .isEqualTo(2);
+                .isEqualTo(1);
         assertThat(result.outputJoined())
-                .as("usage output must mention the valid subcommands")
+                .as("the error must name the valid subcommands")
+                .contains("[CONFIG_CLI_USAGE]")
                 .contains("jdbc")
-                .contains("dump");
+                .contains("dump")
+                .contains("brume init --help");
         assertThat(Files.exists(cwd.resolve(".env.brume")))
                 .as("no file should be created on a failed invocation")
                 .isFalse();

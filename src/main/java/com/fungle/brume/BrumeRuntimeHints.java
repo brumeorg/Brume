@@ -45,6 +45,7 @@ import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
 
+import java.util.List;
 import java.util.stream.Stream;
 
 /**
@@ -141,6 +142,23 @@ public class BrumeRuntimeHints implements RuntimeHintsRegistrar {
                 // --- enums used as Jackson fields in serialised records ---
                 CommandEnum.class               // referenced in BrumeRuntimeContext JSON field
         ).forEach(type -> hints.reflection().registerType(type, MemberCategory.values()));
+
+        // --- JSON payloads declared as nested records next to their writer, auto-discovered so
+        // a new nested record stays covered. Missing until #127g : in the native binary
+        // `audit --json` failed with "Failed to serialize anonymity report as JSON" (Envelope)
+        // and `diag --json` printed an object without properties (DiagReport…). ---
+        for (Class<?> owner : List.of(com.fungle.brume.audit.anonymity.AnonymityJsonRenderer.class,
+                com.fungle.brume.diag.DiagRunner.class)) {
+            for (Class<?> nested : owner.getDeclaredClasses()) {
+                if (nested.isRecord()) {
+                    hints.reflection().registerType(nested, MemberCategory.values());
+                }
+            }
+        }
+
+        // --- brume.version, read by BrumeVersionProvider : native:compile builds from
+        // target/classes, which has neither the jar MANIFEST nor META-INF/maven (#127g). ---
+        hints.resources().registerPattern(com.fungle.brume.command.BrumeVersionProvider.VERSION_RESOURCE);
 
         // --- Thymeleaf/OGNL view records: auto-discovered so new *View additions stay
         // covered without touching this file. OGNL reflects on the record accessors at

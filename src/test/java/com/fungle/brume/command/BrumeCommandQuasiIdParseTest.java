@@ -52,25 +52,27 @@ class BrumeCommandQuasiIdParseTest {
     }
 
     @Test
-    @DisplayName("missing colon throws with actionable message")
+    @DisplayName("#17f — missing colon throws AUDIT_QUASI_ID_INVALID (exit 1), not an IllegalArgumentException reported as [UNEXPECTED]")
     void missingColon() {
         assertThatThrownBy(() -> BrumeCommand.parseQuasiIdFlags(List.of("users_birth_date")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Expected 'table:col1");
+                .isInstanceOf(com.fungle.brume.config.ConfigurationException.class)
+                .hasMessageContaining("Expected 'table:col1")
+                .extracting(e -> ((com.fungle.brume.error.BrumeException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.AUDIT_QUASI_ID_INVALID);
     }
 
     @Test
     @DisplayName("colon at end (no columns) throws")
     void trailingColon() {
         assertThatThrownBy(() -> BrumeCommand.parseQuasiIdFlags(List.of("users:")))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(com.fungle.brume.config.ConfigurationException.class);
     }
 
     @Test
     @DisplayName("empty columns segment throws")
     void emptyColumns() {
         assertThatThrownBy(() -> BrumeCommand.parseQuasiIdFlags(List.of("users: , ,")))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(com.fungle.brume.config.ConfigurationException.class)
                 .hasMessageContaining("no column");
     }
 }

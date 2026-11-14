@@ -1,12 +1,18 @@
 package com.fungle.brume;
 
+import com.fungle.brume.command.BootFailureTranslator;
 import com.fungle.brume.command.BrumeCommand;
 import com.fungle.brume.command.BrumeExecutionExceptionHandler;
+import com.fungle.brume.command.BrumeUsageErrorHandler;
 import com.fungle.brume.config.BrumeProperties;
+import com.fungle.brume.config.ConfigurationException;
 import com.fungle.brume.config.ReplicationProperties;
+import com.fungle.brume.config.RequiredSettings;
+import com.fungle.brume.error.BrumeErrorCode;
 import com.fungle.brume.init.BrumeInitCommand;
 import com.fungle.brume.output.OutputMode;
 import io.github.cdimascio.dotenv.Dotenv;
+import io.github.cdimascio.dotenv.DotenvException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -45,9 +51,15 @@ public class BrumeApplication{
         // is clean (no HikariCP/Spring startup logs). Safe because picocli's mixin
         // never invokes call() or any subcommand method for these flags.
         var argList = Arrays.asList(args);
+        // Before any short-circuit : a usage error ("brume frobnicate --json") is reported in
+        // JSON too (#17f).
+        if (argList.contains("--json")) {
+            System.setProperty(OutputMode.SYSTEM_PROPERTY, OutputMode.JSON.name());
+        }
         if (argList.contains("--help") || argList.contains("-h")
                 || argList.contains("--version") || argList.contains("-V")) {
-            System.exit(new CommandLine(new BrumeCommand(null, null, null, null)).execute(args));
+            System.exit(BrumeUsageErrorHandler.install(new CommandLine(new BrumeCommand(null, null, null, null)))
+                    .execute(args));
         }
 
         // `init` runs standalone : no Spring context, no .env.brume, no DB (ADR-0045).
@@ -59,7 +71,7 @@ public class BrumeApplication{
         if (BrumeInitCommand.isInitInvocation(argList)) {
             int initIdx = argList.indexOf("init");
             String[] subArgs = Arrays.copyOfRange(args, initIdx + 1, args.length);
-            System.exit(new CommandLine(new BrumeInitCommand()).execute(subArgs));
+            System.exit(BrumeUsageErrorHandler.install(new CommandLine(new BrumeInitCommand())).execute(subArgs));
         }
 
         // No subcommand → picocli's fallback is BrumeCommand.call() which prints
@@ -74,19 +86,38 @@ public class BrumeApplication{
         // short-circuit in that phase — the marker `spring.aot.processing=true` is
         // set by Spring's AbstractAotProcessor before it hands off to the app main.
         if (!hasKnownSubcommand(argList) && !isAotProcessingPhase()) {
-            System.exit(new CommandLine(new BrumeCommand(null, null, null, null)).execute(args));
+            System.exit(BrumeUsageErrorHandler.install(new CommandLine(new BrumeCommand(null, null, null, null)))
+                    .execute(args));
         }
 
-        // Friendly guard against the "I just cloned the repo and ran `brume plan`" trap.
-        // Without this, Spring would boot and crash on a BindException over BRUME_HMAC_SECRET
-        // — unactionable for a first-time user. Short-circuit with a message that names the
-        // actual fix (`brume init`). Skipped during AOT so native builds that inject properties
-        // via Maven system properties still work.
-        if (!isAotProcessingPhase()) {
-            guardEnvOrFail();
+        // Every failure before picocli runs — pre-boot checks, .env.brume parsing, Spring
+        // context boot (validators, sink factories, property binding) — goes through the same
+        // reporter as subcommand failures : [CODE] message → suggestion → exit code, TEXT or
+        // JSON, no Spring stack trace (#17c, ADR-0061).
+        BrumeExecutionExceptionHandler reporter = new BrumeExecutionExceptionHandler();
+        ConfigurableApplicationContext ctx;
+        try {
+            // First : --json / -q must shape every error printed below.
+            applyOutputModeFlags(args);
+            if (!isAotProcessingPhase()) {
+                // "I just cloned the repo and ran `brume plan`" : name the fix (`brume init`).
+                // Skipped during AOT so native builds that inject properties via Maven system
+                // properties still work.
+                guardEnvOrFail();
+            }
+            prepareBoot(args);
+            if (!isAotProcessingPhase()) {
+                // A missing key would otherwise reach the run as its literal placeholder (#17d).
+                RequiredSettings.check();
+            }
+            ctx = SpringApplication.run(BrumeApplication.class, args);
+        } catch (RuntimeException | Error failure) {
+            // The AOT processor stops the run with SpringApplication.AbandonedRunException once
+            // the context is built : let it through, a System.exit would kill the native build.
+            if (isAotProcessingPhase()) throw failure;
+            System.exit(reporter.report(new BootFailureTranslator().translate(failure)));
+            return;
         }
-
-        ConfigurableApplicationContext ctx = bootContext(args);
 
         // #24 / A22 — SIGTERM gracieux. Installé APRÈS bootContext donc s'exécute AVANT le
         // shutdown hook auto de Spring (LIFO). Notre hook signale le cancel + abort des
@@ -96,12 +127,15 @@ public class BrumeApplication{
         // ADR-0032.
         com.fungle.brume.shutdown.CancellationRegistry registry =
                 ctx.getBean(com.fungle.brume.shutdown.CancellationRegistry.class);
-        Runtime.getRuntime().addShutdownHook(new Thread(registry::requestCancelAll,
+        Runtime.getRuntime().addShutdownHook(new Thread(registry::onJvmShutdown,
                 "brume-sigterm-hook"));
 
-        CommandLine commandLine = new CommandLine(ctx.getBean(BrumeCommand.class))
-                .setExecutionExceptionHandler(new BrumeExecutionExceptionHandler());
-        System.exit(commandLine.execute(args));
+        CommandLine commandLine = BrumeUsageErrorHandler.install(new CommandLine(ctx.getBean(BrumeCommand.class)))
+                .setExecutionExceptionHandler(reporter);
+        int exitCode = commandLine.execute(args);
+        // The hook also runs on this normal exit : it must not report a SIGTERM (#24a).
+        registry.markCompleted();
+        System.exit(exitCode);
     }
 
     /**
@@ -113,6 +147,12 @@ public class BrumeApplication{
      * (2026-05-05) and {@code BrumeApplicationCliIT}.
      */
     static ConfigurableApplicationContext bootContext(String[] args) {
+        prepareBoot(args);
+        return SpringApplication.run(BrumeApplication.class, args);
+    }
+
+    /** Pre-Spring side effects of {@link #main}, in order : {@code .env.brume}, then the CLI overrides. */
+    static void prepareBoot(String[] args) {
         loadDotEnv();
         applyReadOnlySinkOverride(args);
         applyStrictConfigFlag(args);
@@ -121,7 +161,6 @@ public class BrumeApplication{
         applyAuditBootIsolation(args);
         applyStripTimestampsFlag(args);
         applyResumeFlag(args);
-        return SpringApplication.run(BrumeApplication.class, args);
     }
 
     /**
@@ -139,8 +178,8 @@ public class BrumeApplication{
      * </ul>
      *
      * <p>{@code -v} and {@code -q} are mutually exclusive — passing both terminates the
-     * process before Spring starts with a clear stderr message and exit code 2 (config
-     * error category, matches {@code BrumeErrorCode.CONFIG_*}).
+     * process before Spring starts with {@code CONFIG_INVALID_FLAGS}, exit code 1 (config
+     * error category, ADR-0026 ; was 2 before ADR-0061).
      *
      * <p>System properties win over {@code application*.yaml} per Spring property
      * precedence, so flags always override profile-level log config.
@@ -151,16 +190,14 @@ public class BrumeApplication{
         boolean quiet = argList.contains("-q") || argList.contains("--quiet");
         boolean json = argList.contains("--json");
 
-        if (verbose && quiet) {
-            System.err.println(
-                    "[CONFIG_INVALID_FLAGS] --verbose and --quiet are mutually exclusive.");
-            System.err.println("  → Pick one: -v for DEBUG logs, -q for ERROR only.");
-            System.err.println("  → Exit code: 2");
-            System.exit(2);
-        }
-
+        // JSON first, so the error below is reported as JSON too.
         if (json) {
             System.setProperty(OutputMode.SYSTEM_PROPERTY, OutputMode.JSON.name());
+        }
+        if (verbose && quiet) {
+            failPreBoot(BrumeErrorCode.CONFIG_INVALID_FLAGS,
+                    "--verbose and --quiet are mutually exclusive.",
+                    "Pick one: -v for DEBUG logs, -q for ERROR only.");
         }
         if (verbose) {
             System.setProperty("logging.level.root", "DEBUG");
@@ -168,6 +205,9 @@ public class BrumeApplication{
         } else if (quiet) {
             System.setProperty("logging.level.root", "ERROR");
             System.setProperty("logging.level.com.fungle.brume", "ERROR");
+            // application.yaml pins this package to DEBUG : the more specific level would
+            // win over com.fungle.brume and leak "JdbcSink configured…" under -q (#22b).
+            System.setProperty("logging.level.com.fungle.brume.writer", "ERROR");
         }
     }
 
@@ -253,7 +293,7 @@ public class BrumeApplication{
      * <p>Unlike the other pre-boot flags, this one carries a value. The parsing supports
      * the two conventional spellings and fails fast on three error cases : missing value,
      * blank value, or the flag being passed twice — each emits an actionable error
-     * before Spring starts and exits with code 2.
+     * before Spring starts and exits with code 1 (CHECKPOINT_PATH_MISSING, configuration family).
      */
     private static void applyResumeFlag(String[] args) {
         String found = null;
@@ -261,18 +301,18 @@ public class BrumeApplication{
             String arg = args[i];
             if ("--resume".equals(arg)) {
                 if (i + 1 >= args.length) {
-                    failPreBoot("CHECKPOINT_PATH_MISSING",
+                    failPreBoot(BrumeErrorCode.CHECKPOINT_PATH_MISSING,
                             "--resume requires a path argument.",
                             "Usage: brume execute --resume <path-to-checkpoint.json>");
                 }
                 String next = args[i + 1];
                 if (next == null || next.isBlank() || next.startsWith("--")) {
-                    failPreBoot("CHECKPOINT_PATH_MISSING",
+                    failPreBoot(BrumeErrorCode.CHECKPOINT_PATH_MISSING,
                             "--resume requires a non-blank path argument (got '" + next + "').",
                             "Usage: brume execute --resume <path-to-checkpoint.json>");
                 }
                 if (found != null) {
-                    failPreBoot("CHECKPOINT_PATH_MISSING",
+                    failPreBoot(BrumeErrorCode.CHECKPOINT_PATH_MISSING,
                             "--resume was specified more than once.",
                             "Keep a single --resume <path> argument.");
                 }
@@ -281,12 +321,12 @@ public class BrumeApplication{
             } else if (arg != null && arg.startsWith("--resume=")) {
                 String value = arg.substring("--resume=".length());
                 if (value.isBlank()) {
-                    failPreBoot("CHECKPOINT_PATH_MISSING",
+                    failPreBoot(BrumeErrorCode.CHECKPOINT_PATH_MISSING,
                             "--resume= requires a non-blank path after '='.",
                             "Usage: brume execute --resume=<path-to-checkpoint.json>");
                 }
                 if (found != null) {
-                    failPreBoot("CHECKPOINT_PATH_MISSING",
+                    failPreBoot(BrumeErrorCode.CHECKPOINT_PATH_MISSING,
                             "--resume was specified more than once.",
                             "Keep a single --resume=<path> argument.");
                 }
@@ -351,18 +391,20 @@ public class BrumeApplication{
 
     private static void guardEnvOrFail() {
         if (hasAnyEnvSource(Paths.get("."))) return;
-        failPreBoot("CONFIG_ENV_MISSING",
+        failPreBoot(BrumeErrorCode.CONFIG_ENV_MISSING,
                 "No .env.brume found in the current directory, and BRUME_HMAC_SECRET is "
                         + "not set in the environment.",
                 "Run 'brume init jdbc' (or 'brume init dump') to create a .env.brume template, "
                         + "then edit it with your database credentials and secrets. See ADR-0045 / ADR-0047.");
     }
 
-    private static void failPreBoot(String code, String message, String suggestion) {
-        System.err.println("[" + code + "] " + message);
-        System.err.println("  → " + suggestion);
-        System.err.println("  → Exit code: 2");
-        System.exit(2);
+    /**
+     * Stops the boot with a configuration error. {@code main} reports it like any other
+     * {@code BrumeException} : TEXT or JSON, exit code 1 (configuration family — these
+     * pre-boot errors exited with 2, the connection code, before ADR-0061).
+     */
+    private static void failPreBoot(BrumeErrorCode code, String message, String suggestion) {
+        throw new ConfigurationException(code, message, suggestion);
     }
 
     /**
@@ -385,11 +427,15 @@ public class BrumeApplication{
     }
 
     private static void loadDotEnv() {
-        Dotenv.configure()
-                .filename(".env.brume")
-                .ignoreIfMissing()
-                .load()
-                .entries()
-                .forEach(e -> System.setProperty(e.getKey(), e.getValue()));
+        Dotenv dotenv;
+        try {
+            dotenv = Dotenv.configure()
+                    .filename(".env.brume")
+                    .ignoreIfMissing()
+                    .load();
+        } catch (DotenvException | IllegalStateException e) {
+            throw DotEnvErrors.translate(e, Paths.get(".env.brume"));
+        }
+        dotenv.entries().forEach(e -> System.setProperty(e.getKey(), e.getValue()));
     }
 }

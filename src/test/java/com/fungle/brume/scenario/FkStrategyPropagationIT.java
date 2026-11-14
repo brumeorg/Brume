@@ -1,5 +1,7 @@
 package com.fungle.brume.scenario;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.BrumeApplication;
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
@@ -40,10 +42,10 @@ class FkStrategyPropagationIT {
     private static final Map<String, Object> PROPS = Map.of(
             "brume.config-path", "src/test/resources/test-config-fk-propagation.yaml",
             "brume.sink.type", "JDBC",
-            "replication.source.url", "jdbc:postgresql://localhost:5432/postgres",
-            "replication.target.url", "jdbc:postgresql://localhost:5460/postgres",
+            "replication.source.url", ItDatabases.SOURCE_URL,
+            "replication.target.url", ItDatabases.TARGET_URL,
             "replication.schema", "test_brume",
-            "replication.pgdump-path", "docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+            "replication.pgdump-path", ItDatabases.PGDUMP_PATH,
             "replication.pool-size", "3"
     );
 

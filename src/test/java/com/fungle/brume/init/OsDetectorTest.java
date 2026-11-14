@@ -95,12 +95,12 @@ class OsDetectorTest {
     }
 
     @Test
-    @DisplayName("install commands are family-specific and mention PG 17")
-    void installCommandsMentionPg17() {
-        assertThat(detector.installCommandFor(OsDetector.Family.MACOS)).contains("brew").contains("17");
-        assertThat(detector.installCommandFor(OsDetector.Family.DEBIAN)).contains("apt-get").contains("17");
-        assertThat(detector.installCommandFor(OsDetector.Family.RHEL)).contains("dnf").contains("17");
-        assertThat(detector.installCommandFor(OsDetector.Family.ALPINE)).contains("apk").contains("17");
+    @DisplayName("install commands are family-specific and mention PG 18 (recommended pg_dump, ADR-0058)")
+    void installCommandsMentionPg18() {
+        assertThat(detector.installCommandFor(OsDetector.Family.MACOS)).contains("brew").contains("18");
+        assertThat(detector.installCommandFor(OsDetector.Family.DEBIAN)).contains("apt-get").contains("18");
+        assertThat(detector.installCommandFor(OsDetector.Family.RHEL)).contains("dnf").contains("18");
+        assertThat(detector.installCommandFor(OsDetector.Family.ALPINE)).contains("apk").contains("18");
         assertThat(detector.installCommandFor(OsDetector.Family.ARCH)).contains("pacman");
         assertThat(detector.installCommandFor(OsDetector.Family.WINDOWS)).contains("postgresql.org");
         assertThat(detector.installCommandFor(OsDetector.Family.UNKNOWN)).contains("postgresql.org");

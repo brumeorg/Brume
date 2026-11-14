@@ -1,5 +1,7 @@
 package com.fungle.brume.agent;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.command.CommandEnum;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>The {@code SqlFileSink} produces a {@code .sql.gz} dump file containing
  *       the DDL and anonymized data.</li>
  *   <li>Drop {@code test_brume} from the target ("clean target") and pipe the
- *       decompressed dump into {@code docker exec brume-target psql -f -}.</li>
+ *       decompressed dump into {@code ItDatabases.targetPsql(...)} (stdin).</li>
  *   <li>Query the restored target via JDBC: assert FK integrity (zero orphans on
  *       all FK relationships, including cyclic {@code users.manager_id}), expected
  *       row counts (extraction filter applied), and anonymization spot checks
@@ -55,10 +57,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         "brume.sink.type=DUMP",
         "brume.sink.compression=GZIP",
         "brume.sink.output-path=target/dump-roundtrip-it.sql.gz",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres",
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}",
         "replication.schema=test_brume",
-        "replication.pgdump-path=docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+        "replication.pgdump-path=${it.db.pgdump-path}",
         "replication.pool-size=3"  // small pool to avoid saturating target's max_connections in CI
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -79,7 +81,7 @@ class DumpRoundTripIT {
     private static JdbcTemplate standaloneTargetJdbc() {
         SimpleDriverDataSource ds = new SimpleDriverDataSource();
         ds.setDriver(new org.postgresql.Driver());
-        ds.setUrl("jdbc:postgresql://localhost:5460/postgres");
+        ds.setUrl(ItDatabases.TARGET_URL);
         ds.setUsername("postgres");
         ds.setPassword("postgres");
         return new JdbcTemplate(ds);
@@ -108,7 +110,7 @@ class DumpRoundTripIT {
         assertThat(head[0] & 0xFF).as("gzip magic byte 0").isEqualTo(0x1F);
         assertThat(head[1] & 0xFF).as("gzip magic byte 1").isEqualTo(0x8B);
 
-        // Act 2 — restore the dump on the (now clean) target via docker exec psql
+        // Act 2 — restore the dump on the (now clean) target via ItDatabases.targetPsql
         restoreDumpViaPsql();
 
         // Verify 1 — referential integrity (zero FK orphans on every relationship)
@@ -172,16 +174,11 @@ class DumpRoundTripIT {
 
     /**
      * Decompresses the dump in Java and pipes the plain SQL into
-     * {@code docker exec -i brume-target psql ... -f -}. Same pattern as
+     * {@code ItDatabases.targetPsql(...)} (stdin). Same pattern as
      * {@code SqlFileSinkCompressionIT}.
      */
     private void restoreDumpViaPsql() throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(
-                "docker", "exec", "-i",
-                "-e", "PGPASSWORD=postgres",
-                "brume-target",
-                "psql", "-U", "postgres", "-d", "postgres",
-                "-v", "ON_ERROR_STOP=1",
+        ProcessBuilder pb = ItDatabases.targetPsql("-v", "ON_ERROR_STOP=1",
                 "--quiet"
         );
         pb.redirectErrorStream(true);

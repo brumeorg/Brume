@@ -58,7 +58,7 @@ public final class OsDetector {
     }
 
     public String installCommandFor(Family family) {
-        int v = PgDumpChecker.REQUIRED_MAJOR_VERSION;
+        int v = PgDumpChecker.RECOMMENDED_MAJOR_VERSION;
         return switch (family) {
             case MACOS -> "brew install postgresql@" + v;
             case DEBIAN -> "sudo apt-get install -y postgresql-client-" + v;

@@ -1,5 +1,7 @@
 package com.fungle.brume.replicator;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.config.ReplicationProperties;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -27,7 +29,7 @@ class SchemaReplicatorIT {
     @BeforeAll
     static void setUpDataSource() {
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:postgresql://localhost:5460/postgres");
+        config.setJdbcUrl(ItDatabases.TARGET_URL);
         config.setUsername("postgres");
         config.setPassword("postgres");
         config.setMaximumPoolSize(5);
@@ -52,8 +54,8 @@ class SchemaReplicatorIT {
                 ReplicationProperties.DdlErrorMode.STRICT,
                 20,
                 3,
-                new ReplicationProperties.Source("jdbc:postgresql://localhost:5432/postgres", "postgres", "postgres"),
-                new ReplicationProperties.Target("jdbc:postgresql://localhost:5460/postgres", "postgres", "postgres")
+                new ReplicationProperties.Source(ItDatabases.SOURCE_URL, "postgres", "postgres"),
+                new ReplicationProperties.Target(ItDatabases.TARGET_URL, "postgres", "postgres")
         );
         var replicator = new SchemaReplicator(props, new com.fungle.brume.shutdown.CancellationRegistry(new com.fungle.brume.shutdown.CancellationToken()));
 
@@ -110,8 +112,8 @@ class SchemaReplicatorIT {
                 ReplicationProperties.DdlErrorMode.LENIENT,
                 20,
                 3,
-                new ReplicationProperties.Source("jdbc:postgresql://localhost:5432/postgres", "postgres", "postgres"),
-                new ReplicationProperties.Target("jdbc:postgresql://localhost:5460/postgres", "postgres", "postgres")
+                new ReplicationProperties.Source(ItDatabases.SOURCE_URL, "postgres", "postgres"),
+                new ReplicationProperties.Target(ItDatabases.TARGET_URL, "postgres", "postgres")
         );
         var replicator = new SchemaReplicator(props, new com.fungle.brume.shutdown.CancellationRegistry(new com.fungle.brume.shutdown.CancellationToken()));
 
@@ -164,8 +166,8 @@ class SchemaReplicatorIT {
                 ReplicationProperties.DdlErrorMode.STRICT,
                 20,
                 3,
-                new ReplicationProperties.Source("jdbc:postgresql://localhost:5432/postgres", "postgres", "postgres"),
-                new ReplicationProperties.Target("jdbc:postgresql://localhost:5460/postgres", "postgres", "postgres")
+                new ReplicationProperties.Source(ItDatabases.SOURCE_URL, "postgres", "postgres"),
+                new ReplicationProperties.Target(ItDatabases.TARGET_URL, "postgres", "postgres")
         );
         var replicator = new SchemaReplicator(props, new com.fungle.brume.shutdown.CancellationRegistry(new com.fungle.brume.shutdown.CancellationToken()));
 

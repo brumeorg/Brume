@@ -135,8 +135,8 @@ public final class JdbcUrlValidator {
             throw new ConfigurationException(
                     BrumeErrorCode.CONFIG_JDBC_URL_INVALID,
                     propertyName + "='" + rawUrl + "' is not a valid PostgreSQL JDBC URL "
-                            + "(org.postgresql.Driver.parseURL returned null)",
-                    EXPECTED_FORM_HINT);
+                            + "(check the host, the port — a number — and the database name)",
+                    envHint(propertyName) + EXPECTED_FORM_HINT);
         }
 
         TreeSet<String> rejected = new TreeSet<>();
@@ -179,5 +179,17 @@ public final class JdbcUrlValidator {
         }
         String sslMode = parsed.getProperty("sslmode");
         return new ParsedJdbcUrl(host, port, database, sslMode);
+    }
+
+    /** #17g : the URL is assembled from .env.brume keys, name them first. */
+    private static String envHint(String propertyName) {
+        if (propertyName == null) return "";
+        if (propertyName.startsWith("replication.source")) {
+            return "It is built from BRUME_SOURCE_HOST, BRUME_SOURCE_PORT and BRUME_SOURCE_DB in .env.brume. ";
+        }
+        if (propertyName.startsWith("replication.target")) {
+            return "It is built from BRUME_TARGET_HOST, BRUME_TARGET_PORT and BRUME_TARGET_DB in .env.brume. ";
+        }
+        return "";
     }
 }

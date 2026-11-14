@@ -19,8 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {
         "brume.config-path=src/test/resources/test-config-integration.yaml",
         "brume.pipeline-mode=STREAMING",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres"
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}"
 })
 class CursorReaderIT {
 

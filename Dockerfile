@@ -1,6 +1,7 @@
 FROM eclipse-temurin:25-jre-alpine
 
-RUN apk add --no-cache postgresql-client
+# pg_dump 18 (dernière majeure) : lit toutes les sources supportées, 12 → 18 (ADR-0058).
+RUN apk add --no-cache postgresql18-client
 
 WORKDIR /app
 

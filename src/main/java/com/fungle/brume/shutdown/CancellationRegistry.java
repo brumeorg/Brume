@@ -45,8 +45,69 @@ public class CancellationRegistry {
 
     private final CancellationToken token;
 
+    /**
+     * How long the hook waits, after a signal, for the main thread to report the
+     * cancellation and close the sinks (#24d, ADR-0063). Below the 10 s grace period of
+     * {@code docker stop} before its SIGKILL.
+     */
+    static final java.time.Duration MAIN_THREAD_GRACE = java.time.Duration.ofSeconds(8);
+
+    /**
+     * Set by the shutdown hook ({@link #onJvmShutdown()}) on a signal. Read by the error reporter, outside Spring : once
+     * the JDBC connections and pg_dump are aborted, whatever exception the main thread hits
+     * (I/O error, connection lost…) is a consequence of the signal (#24d).
+     */
+    private static volatile boolean cancellationRequested;
+
+    public static boolean cancellationRequested() {
+        return cancellationRequested;
+    }
+
+    /** Tests run in one JVM : a simulated signal must not leak into the next test class. */
+    static void resetCancellationRequested() {
+        cancellationRequested = false;
+    }
+
+    /** Counted down once the subcommand returned : the JVM then exits on purpose, not on a signal. */
+    private final java.util.concurrent.CountDownLatch completed = new java.util.concurrent.CountDownLatch(1);
+
     public CancellationRegistry(CancellationToken token) {
         this.token = token;
+    }
+
+    /** Marks the run as finished : a later {@link #onJvmShutdown()} is the normal exit. */
+    public void markCompleted() {
+        completed.countDown();
+    }
+
+    /**
+     * Body of the JVM shutdown hook. A hook runs on every JVM exit, including the
+     * {@code System.exit} after a finished run : before #24a that path logged
+     * "SIGTERM received — cancelling 0 JDBC connection(s)" at the end of every command.
+     *
+     * <p>On a signal, the run is still in progress : cancel everything, then give the main
+     * thread {@link #MAIN_THREAD_GRACE} to print {@code [RUN_CANCELLED]} and close the sinks
+     * (gzip / zstd trailer of a dump). Before #24d the hook returned at once and the JVM
+     * halted while the main thread was still unwinding : no message, possibly a truncated
+     * dump. The exit code is the JVM's : 143 on SIGTERM, 130 on SIGINT (ADR-0063).
+     */
+    public void onJvmShutdown() {
+        onJvmShutdown(MAIN_THREAD_GRACE);
+    }
+
+    void onJvmShutdown(java.time.Duration grace) {
+        if (completed.getCount() == 0) return;
+        cancellationRequested = true;
+        log.info("Termination signal received (SIGTERM / SIGINT) — stopping the run");
+        requestCancelAll();
+        try {
+            if (!completed.await(grace.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                log.warn("Run still unwinding {} s after the termination signal — exiting anyway",
+                        grace.toSeconds());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     public void register(Connection connection) {
@@ -75,7 +136,7 @@ public class CancellationRegistry {
      */
     public void requestCancelAll() {
         token.requestCancel();
-        log.info("SIGTERM received — cancelling {} JDBC connection(s) and {} subprocess(es)",
+        log.info("Cancelling {} JDBC connection(s) and {} subprocess(es)",
                 connections.size(), subprocesses.size());
 
         // Iterate over snapshots to avoid ConcurrentModificationException during cancel.

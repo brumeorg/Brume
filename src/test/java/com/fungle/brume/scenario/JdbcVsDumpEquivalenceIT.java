@@ -1,5 +1,7 @@
 package com.fungle.brume.scenario;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.BrumeApplication;
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
@@ -45,8 +47,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Snapshots are compared at the end.
  *
  * <p><strong>Requires Docker infrastructure</strong> — {@code docker-compose
- * up -d}. Reuses the {@code docker exec brume-source pg_dump} +
- * {@code docker exec brume-target psql} pattern from {@code DumpRoundTripIT}
+ * up -d}. Reuses the the {@code it.db.pgdump-path} pg_dump (ADR-0059) +
+ * {@code ItDatabases.targetPsql(...)} pattern from {@code DumpRoundTripIT}
  * so no local PostgreSQL CLI is required.
  */
 class JdbcVsDumpEquivalenceIT {
@@ -56,10 +58,10 @@ class JdbcVsDumpEquivalenceIT {
 
     private static final Map<String, Object> COMMON_PROPS = Map.of(
             "brume.config-path", "src/test/resources/test-config-integration.yaml",
-            "replication.source.url", "jdbc:postgresql://localhost:5432/postgres",
-            "replication.target.url", "jdbc:postgresql://localhost:5460/postgres",
+            "replication.source.url", ItDatabases.SOURCE_URL,
+            "replication.target.url", ItDatabases.TARGET_URL,
             "replication.schema", "test_brume",
-            "replication.pgdump-path", "docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+            "replication.pgdump-path", ItDatabases.PGDUMP_PATH,
             "replication.pool-size", "3"
     );
 
@@ -174,12 +176,7 @@ class JdbcVsDumpEquivalenceIT {
     }
 
     private static void restoreDumpViaPsql() throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(
-                "docker", "exec", "-i",
-                "-e", "PGPASSWORD=postgres",
-                "brume-target",
-                "psql", "-U", "postgres", "-d", "postgres",
-                "-v", "ON_ERROR_STOP=1",
+        ProcessBuilder pb = ItDatabases.targetPsql("-v", "ON_ERROR_STOP=1",
                 "--quiet"
         );
         pb.redirectErrorStream(true);

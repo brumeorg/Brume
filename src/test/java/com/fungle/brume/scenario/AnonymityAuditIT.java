@@ -50,10 +50,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         "brume.config-path=src/test/resources/test-config-integration.yaml",
         "brume.sink.type=JDBC",
         "brume.preflight.mode=AUDIT",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres",
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}",
         "replication.schema=audit_anonymity_it",
-        "replication.pgdump-path=docker exec -e PGPASSWORD=postgres brume-source pg_dump",
+        "replication.pgdump-path=${it.db.pgdump-path}",
         "replication.pool-size=3"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

@@ -1,5 +1,7 @@
 package com.fungle.brume.shutdown;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.BrumeApplication;
 import com.fungle.brume.agent.ReplicationAgent;
 import com.fungle.brume.command.CommandEnum;
@@ -31,14 +33,14 @@ class CancellationPropagationIT {
         Map<String, Object> p = new LinkedHashMap<>();
         p.put("brume.config-path", "src/test/resources/test-config-integration.yaml");
         p.put("brume.sink.type", "JDBC");
-        p.put("replication.source.url", "jdbc:postgresql://localhost:5432/postgres");
+        p.put("replication.source.url", ItDatabases.SOURCE_URL);
         p.put("replication.source.username", "postgres");
         p.put("replication.source.password", "postgres");
-        p.put("replication.target.url", "jdbc:postgresql://localhost:5460/postgres");
+        p.put("replication.target.url", ItDatabases.TARGET_URL);
         p.put("replication.target.username", "postgres");
         p.put("replication.target.password", "postgres");
         p.put("replication.schema", "test_brume");
-        p.put("replication.pgdump-path", "docker exec -e PGPASSWORD=postgres brume-source pg_dump");
+        p.put("replication.pgdump-path", ItDatabases.PGDUMP_PATH);
         p.put("replication.pool-size", "3");
         return p;
     }

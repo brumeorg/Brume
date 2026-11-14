@@ -1,5 +1,7 @@
 package com.fungle.brume.agent;
 
+import com.fungle.brume.ItDatabases;
+
 import com.fungle.brume.command.CommandEnum;
 import com.fungle.brume.writer.NullSink;
 import com.fungle.brume.writer.Sink;
@@ -36,8 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {
         "brume.config-path=src/test/resources/test-config-integration.yaml",
         "brume.sink.type=NULL",
-        "replication.source.url=jdbc:postgresql://localhost:5432/postgres",
-        "replication.target.url=jdbc:postgresql://localhost:5460/postgres"
+        "replication.source.url=${it.db.source-url}",
+        "replication.target.url=${it.db.target-url}"
 })
 class DryRunIT {
 
@@ -59,7 +61,7 @@ class DryRunIT {
     private static JdbcTemplate standaloneTargetJdbc() {
         SimpleDriverDataSource ds = new SimpleDriverDataSource();
         ds.setDriver(new org.postgresql.Driver());
-        ds.setUrl("jdbc:postgresql://localhost:5460/postgres");
+        ds.setUrl(ItDatabases.TARGET_URL);
         ds.setUsername("postgres");
         ds.setPassword("postgres");
         return new JdbcTemplate(ds);

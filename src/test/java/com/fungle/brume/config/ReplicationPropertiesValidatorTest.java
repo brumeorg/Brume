@@ -12,7 +12,10 @@ import com.fungle.brume.plan.PlanMode;
 import com.fungle.brume.writer.CompressionType;
 import com.fungle.brume.writer.CopyMode;
 import com.fungle.brume.writer.SinkType;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -118,15 +121,72 @@ class ReplicationPropertiesValidatorTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    @DisplayName("#17g — unknown sslmode is a configuration error (exit 1), not a connection failure (exit 2)")
+    void validate_rejectsUnknownSslMode() {
+        ReplicationProperties repl = props(SAFE_URL + "?sslmode=foo", new Target(SAFE_URL, "u", "p"));
+
+        assertThatThrownBy(() -> new ReplicationPropertiesValidator(repl, brume(SinkType.JDBC)).validate())
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("sslmode='foo'")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.CONFIG_JDBC_SSLMODE_INVALID);
+    }
+
+    @Test
+    void validate_acceptsEveryPostgresSslMode() {
+        for (String mode : List.of("disable", "allow", "prefer", "require", "verify-ca", "verify-full")) {
+            ReplicationProperties repl = props(SAFE_URL + "?sslmode=" + mode, new Target(SAFE_URL, "u", "p"));
+            assertThatCode(() -> new ReplicationPropertiesValidator(repl, brume(SinkType.JDBC)).validate())
+                    .as(mode).doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    @DisplayName("#17g — pool size 0 is reported before Hikari throws a bare IllegalArgumentException")
+    void validate_rejectsPoolSizeBelowOne() {
+        ReplicationProperties repl = props(SAFE_URL, new Target(SAFE_URL, "u", "p"), 0, "test_brume", "user");
+
+        assertThatThrownBy(() -> new ReplicationPropertiesValidator(repl, brume(SinkType.JDBC)).validate())
+                .isInstanceOf(ConfigurationException.class)
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.CONFIG_POOL_SIZE_INVALID);
+    }
+
+    @Test
+    @DisplayName("#17d — an unset BRUME_SCHEMA left as the literal ${BRUME_SCHEMA} is refused")
+    void validate_rejectsUnresolvedSchemaPlaceholder() {
+        ReplicationProperties repl = props(SAFE_URL, new Target(SAFE_URL, "u", "p"), 20, "${BRUME_SCHEMA}", "user");
+
+        assertThatThrownBy(() -> new ReplicationPropertiesValidator(repl, brume(SinkType.JDBC)).validate())
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("BRUME_SCHEMA is missing")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(com.fungle.brume.error.BrumeErrorCode.CONFIG_ENV_VAR_MISSING);
+    }
+
+    @Test
+    @DisplayName("#17d — an unset BRUME_SOURCE_USER left as the literal placeholder is refused")
+    void validate_rejectsUnresolvedUserPlaceholder() {
+        ReplicationProperties repl = props(SAFE_URL, new Target(SAFE_URL, "u", "p"), 20, "test_brume", "${BRUME_SOURCE_USER}");
+
+        assertThatThrownBy(() -> new ReplicationPropertiesValidator(repl, brume(SinkType.JDBC)).validate())
+                .hasMessageContaining("BRUME_SOURCE_USER is missing");
+    }
+
     private ReplicationProperties props(String sourceUrl, Target target) {
+        return props(sourceUrl, target, 20, "test_brume", "user");
+    }
+
+    private ReplicationProperties props(String sourceUrl, Target target, int poolSize, String schema, String user) {
         return new ReplicationProperties(
-                "test_brume",
+                schema,
                 "pg_dump",
                 300,
                 DdlErrorMode.STRICT,
-                20,
+                poolSize,
                 3,
-                new Source(sourceUrl, "user", "pwd"),
+                new Source(sourceUrl, user, "pwd"),
                 target,
                 false
         );

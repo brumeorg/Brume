@@ -42,7 +42,7 @@ class BrumeApplicationCliIT {
 
     private static final String[] BASE_DB_ARGS = {
             "--brume.config-path=src/test/resources/test-config-integration.yaml",
-            "--replication.source.url=jdbc:postgresql://localhost:5432/postgres",
+            "--replication.source.url=${it.db.source-url}",
             "--replication.source.username=postgres",
             "--replication.source.password=postgres",
             "--replication.schema=test_brume",

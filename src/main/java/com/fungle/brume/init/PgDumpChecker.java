@@ -9,7 +9,18 @@ import java.util.regex.Pattern;
 
 public class PgDumpChecker {
 
-    public static final int REQUIRED_MAJOR_VERSION = 17;
+    /**
+     * Oldest pg_dump Brume accepts — the floor of the supported server matrix (ADR-0058).
+     * The real rule (pg_dump major ≥ source major) is enforced at run time by the preflight,
+     * because init does not know the source yet.
+     */
+    public static final int MINIMUM_MAJOR_VERSION = 12;
+
+    /**
+     * Latest PostgreSQL major : a pg_dump of this version reads every supported source
+     * (12 → 18), so it is the one Brume recommends installing (ADR-0058).
+     */
+    public static final int RECOMMENDED_MAJOR_VERSION = 18;
 
     private static final Pattern VERSION_PATTERN =
             Pattern.compile("\\bPostgreSQL\\)?\\s+(\\d+)(?:\\.(\\d+))?");
@@ -17,7 +28,12 @@ public class PgDumpChecker {
     public record Result(boolean found, Optional<Integer> majorVersion, Optional<String> rawOutput) {
 
         public boolean meetsRequirement() {
-            return found && majorVersion.map(v -> v >= REQUIRED_MAJOR_VERSION).orElse(false);
+            return found && majorVersion.map(v -> v >= MINIMUM_MAJOR_VERSION).orElse(false);
+        }
+
+        /** True when this pg_dump can read every supported source version. */
+        public boolean isRecommended() {
+            return found && majorVersion.map(v -> v >= RECOMMENDED_MAJOR_VERSION).orElse(false);
         }
     }
 

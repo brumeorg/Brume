@@ -14,7 +14,8 @@ class CliFlagsE2E {
     /**
      * KNOWN GAP #22a — {@code BrumeApplication} applies these flags before Spring boots, but
      * picocli does not declare them on the subcommands : the run stops on "Unknown option",
-     * exit 2. Asserted as-is so the fix turns this test red : then expect the flag to work.
+     * reported as {@code [CONFIG_CLI_USAGE]}, exit 1 (exit 2 before ADR-0061). Asserted as-is
+     * so the fix turns this test red : then expect the flag to work.
      */
     @ParameterizedTest(name = "brume {0} {1}")
     @CsvSource({"plan, --strict-config", "plan, --no-quasi-id-warn", "execute, --strip-timestamps",
@@ -27,7 +28,7 @@ class CliFlagsE2E {
 
         BrumeCli.Result result = project.run(command, flag);
 
-        assertThat(result.exitCode()).as(result.describe()).isEqualTo(2);
-        assertThat(result.stderr()).contains("Unknown option");
+        assertThat(result.exitCode()).as(result.describe()).isEqualTo(1);
+        assertThat(result.stderr()).contains("[CONFIG_CLI_USAGE] Unknown option");
     }
 }

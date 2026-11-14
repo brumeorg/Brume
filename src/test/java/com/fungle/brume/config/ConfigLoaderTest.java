@@ -125,6 +125,36 @@ class ConfigLoaderTest {
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("Config file not found");
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("#17g — an unknown strategy names the value, the YAML path, the line and the "
+            + "allowed values, without Java class names")
+    void load_reportsUnknownStrategyInYamlTerms(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)
+            throws java.io.IOException {
+        java.nio.file.Path yml = dir.resolve("brume.yml");
+        java.nio.file.Files.writeString(yml, """
+                extraction:
+                  tables:
+                    - table: users
+                anonymization:
+                  tables:
+                    - table: users
+                      columns:
+                        - name: email
+                          strategy: NOPE
+                """);
+        BrumeProperties props = new BrumeProperties(yml.toString(), null, null, "HmacSHA256", "fr", 0.0,
+                PipelineMode.STREAMING,
+                new BrumeProperties.SubstitutionDictProperties(1_000_000L), new BrumeProperties.ReportProperties("", "", ""));
+
+        assertThatThrownBy(new ConfigLoader(props)::load)
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("Invalid value 'NOPE' for anonymization.tables[0].columns[0].strategy")
+                .hasMessageContaining("(line 9)")
+                .hasMessageNotContaining("com.fungle")
+                .satisfies(e -> assertThat(((ConfigurationException) e).suggestion())
+                        .contains("Allowed values : ").contains("FAKE").contains("KEEP"));
+    }
 }
 
 

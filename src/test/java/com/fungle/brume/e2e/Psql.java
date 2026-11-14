@@ -22,13 +22,6 @@ import java.util.zip.GZIPInputStream;
  */
 final class Psql {
 
-    /**
-     * Error printed when the local {@code pg_dump} is newer than the server : PostgreSQL 17+
-     * dumps start with {@code SET transaction_timeout}, unknown to a 16 server. Harmless — CI
-     * pairs pg_dump 16 with postgres:16 and never sees it.
-     */
-    private static final String NEWER_PG_DUMP_NOISE = "unrecognized configuration parameter \"transaction_timeout\"";
-
     private Psql() {
     }
 
@@ -71,7 +64,6 @@ final class Psql {
             drain.join();
             return errors.toString(StandardCharsets.UTF_8).lines()
                     .filter(line -> line.contains("ERROR"))
-                    .filter(line -> !line.contains(NEWER_PG_DUMP_NOISE))
                     .toList();
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot run psql on " + label, e);
