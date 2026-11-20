@@ -29,6 +29,7 @@
 
 ## Prerequisites
 
+- **Linux x86_64 with glibc ≥ 2.28** — RHEL / Rocky / Alma / Oracle Linux 8+, Fedora, Debian 11+, Ubuntu 20.04+ (each release is installed and started on RHEL 8 / 9, Debian 11 / 13 and Ubuntu 20.04 / 24.04 before it is published) — or **macOS on Apple Silicon**
 - **PostgreSQL 12, 13, 14, 15, 16, 17 or 18** on the source database and the target database
 - A local **`pg_dump` ≥ the source major version** (checked before every run). **`pg_dump` 18 is recommended**: one client reads every supported source, and the Docker image ships it.
   - Loading into a target **older** than the source is best-effort: a feature the target does not know (e.g. `UNIQUE NULLS NOT DISTINCT`, 15+) fails whatever the client. Brume removes what an older server or `psql` rejects (`\restrict`, `SET transaction_timeout`), so only replay a dump file that comes from a trusted source (ADR-0058).
@@ -71,7 +72,7 @@ brew upgrade brume
 cp brume.example.yml brume.yml
 ```
 
-## Installation on Fedora/CentOS
+## Installation on RHEL/Rocky/Alma/Fedora
 
 
 ```bash
