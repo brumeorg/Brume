@@ -7,6 +7,7 @@ import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.TypeReference;
 import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -114,6 +115,28 @@ class BrumeRuntimeHintsTest {
                 .isTrue();
         assertThat(RuntimeHintsPredicates.resource().forResource("en.yml").test(hints))
                 .as("Datafaker locale YAML at jar root must be reachable")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("GitHub #3 — FAKE + PHONE : the libphonenumber method Datafaker reflects on, and the region metadata, are registered")
+    void phoneNumberMetadataIsReachable() throws Exception {
+        RuntimeHints hints = new RuntimeHints();
+        new BrumeRuntimeHints().registerHints(hints, getClass().getClassLoader());
+
+        // The exact lookup of Datafaker's PhoneNumberGenerator.getPhoneMetadata, which failed in
+        // the native image with NoSuchMethodException.
+        Method getMetadataForRegion = Class.forName(BrumeRuntimeHints.PHONE_NUMBER_UTIL)
+                .getDeclaredMethod("getMetadataForRegion", String.class);
+        assertThat(RuntimeHintsPredicates.reflection().onMethodInvocation(getMetadataForRegion).test(hints))
+                .as("PhoneNumberUtil.getMetadataForRegion(String) must be invocable by reflection")
+                .isTrue();
+        String frMetadata = BrumeRuntimeHints.PHONE_METADATA_DIR + "PhoneNumberMetadataProto_FR";
+        assertThat(getClass().getClassLoader().getResource(frMetadata))
+                .as("libphonenumber keeps its region metadata at %s", frMetadata)
+                .isNotNull();
+        assertThat(RuntimeHintsPredicates.resource().forResource(frMetadata).test(hints))
+                .as("the region metadata loaded by getMetadataForRegion must be a native-image resource")
                 .isTrue();
     }
 }

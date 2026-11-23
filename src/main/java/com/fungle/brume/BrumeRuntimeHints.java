@@ -41,6 +41,7 @@ import com.fungle.brume.report.SubstitutionDictStats;
 import com.fungle.brume.report.TableStats;
 import com.fungle.brume.state.ColumnState;
 import com.fungle.brume.state.ExecutionState;
+import org.springframework.aot.hint.ExecutableMode;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -70,6 +71,8 @@ import java.util.stream.Stream;
  *   <li>Datafaker locale YAML files (jar-root resources like {@code en.yml})
  *       and provider classes ({@code Name.lastName()} et al.) used by
  *       {@code FakeStrategy} — Datafaker 2.x ships no AOT metadata of its own</li>
+ *   <li>libphonenumber's reflective entry point and per-region metadata files, reached by
+ *       Datafaker's phone number generator</li>
  * </ul>
  *
  * <p>Activated via {@code @ImportRuntimeHints(BrumeRuntimeHints.class)} on
@@ -81,6 +84,9 @@ import java.util.stream.Stream;
  * {@code com.fungle.brume.config.model.*}.
  */
 public class BrumeRuntimeHints implements RuntimeHintsRegistrar {
+
+    static final String PHONE_NUMBER_UTIL = "com.google.i18n.phonenumbers.PhoneNumberUtil";
+    static final String PHONE_METADATA_DIR = "com/google/i18n/phonenumbers/data/";
 
     @Override
     public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
@@ -257,6 +263,18 @@ public class BrumeRuntimeHints implements RuntimeHintsRegistrar {
                     org.springframework.aot.hint.TypeReference.of(typeName),
                     MemberCategory.INVOKE_PUBLIC_METHODS);
         }
+
+        // --- libphonenumber, behind FAKE + PHONE : Datafaker's PhoneNumberGenerator reads the
+        // package-private PhoneNumberUtil.getMetadataForRegion(String) by reflection, which then
+        // loads the per-region metadata files from the classpath. Neither library ships native
+        // metadata and the GraalVM repository covers neither : the native binary failed with
+        // NoSuchMethodException (GitHub #3). ---
+        hints.reflection().registerType(
+                org.springframework.aot.hint.TypeReference.of(PHONE_NUMBER_UTIL),
+                type -> type.withMethod("getMetadataForRegion",
+                        List.of(org.springframework.aot.hint.TypeReference.of(String.class)),
+                        ExecutableMode.INVOKE));
+        hints.resources().registerPattern(PHONE_METADATA_DIR + "*");
 
         // --- Datafaker shaded snakeyaml: parses the locale YAMLs at runtime. Without
         // reflection on the YAML/Constructor/Representer classes the parse silently produces
