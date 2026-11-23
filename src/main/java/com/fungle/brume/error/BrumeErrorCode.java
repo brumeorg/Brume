@@ -62,7 +62,13 @@ public enum BrumeErrorCode {
     /** A SQL identifier (table or column) does not match the PostgreSQL unquoted-identifier rules. */
     CONFIG_INVALID_IDENTIFIER,
 
-    /** A column with strategy {@code FAKE} is missing the required {@code SemanticType}. */
+    /** A column, or a {@code json_paths} entry, declares no {@code strategy} (GitHub #2). */
+    CONFIG_STRATEGY_MISSING,
+
+    /**
+     * A column, or a {@code json_paths} entry, with strategy {@code FAKE} is missing the
+     * required {@code SemanticType}.
+     */
     CONFIG_STRATEGY_REQUIRES_TYPE,
 
     /** A column with type {@code JSONB} is missing the required {@code json_paths} list. */

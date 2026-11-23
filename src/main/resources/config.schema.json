@@ -57,7 +57,7 @@
         },
         "strategy" : {
           "$ref" : "#/$defs/Strategy-nullable",
-          "description" : "Anonymization strategy to apply to this column."
+          "description" : "Anonymization strategy to apply to this column. Required, JSONB columns included."
         },
         "type" : {
           "$ref" : "#/$defs/SemanticType-nullable",
@@ -132,11 +132,11 @@
         },
         "strategy" : {
           "$ref" : "#/$defs/Strategy-nullable",
-          "description" : "Anonymization strategy applied to that field."
+          "description" : "Anonymization strategy applied to that field. Required : it is not inherited from the column."
         },
         "type" : {
           "$ref" : "#/$defs/SemanticType-nullable",
-          "description" : "Semantic type of the targeted JSON field."
+          "description" : "Semantic type of the targeted JSON field — required when strategy=FAKE."
         }
       },
       "description" : "Anonymization rule for one path inside a JSONB column.",

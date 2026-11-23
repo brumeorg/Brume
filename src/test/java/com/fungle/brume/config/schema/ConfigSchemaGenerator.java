@@ -128,7 +128,7 @@ public final class ConfigSchemaGenerator {
             )),
             Map.entry(ColumnConfig.class, Map.ofEntries(
                     Map.entry("name", "Column name as it appears in the database schema."),
-                    Map.entry("strategy", "Anonymization strategy to apply to this column."),
+                    Map.entry("strategy", "Anonymization strategy to apply to this column. Required, JSONB columns included."),
                     Map.entry("type", "Semantic type — required when strategy=FAKE, optional/ignored for HASH/NULLIFY/KEEP/FPE_ID/FPE_UUID. Use JSONB to anonymize specific paths inside a JSON column (see json_paths)."),
                     Map.entry("jsonPaths", "Per-path anonymization rules for this column. Required when type=JSONB; ignored otherwise."),
                     Map.entry("minYear", "Lower bound (inclusive) of the year range for strategy=FAKE + type=DATE. Set together with max_year. Default: 1935."),
@@ -136,8 +136,8 @@ public final class ConfigSchemaGenerator {
             )),
             Map.entry(JsonPathConfig.class, Map.ofEntries(
                     Map.entry("path", "JSONPath expression starting with $ — e.g. \"$.user.email\" or \"$.metadata.session.token\"."),
-                    Map.entry("type", "Semantic type of the targeted JSON field."),
-                    Map.entry("strategy", "Anonymization strategy applied to that field.")
+                    Map.entry("type", "Semantic type of the targeted JSON field — required when strategy=FAKE."),
+                    Map.entry("strategy", "Anonymization strategy applied to that field. Required : it is not inherited from the column.")
             ))
     );
 
