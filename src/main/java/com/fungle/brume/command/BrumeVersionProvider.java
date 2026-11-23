@@ -23,7 +23,11 @@ public class BrumeVersionProvider implements CommandLine.IVersionProvider {
         return new String[]{"brume " + resolveVersion()};
     }
 
-    static String resolveVersion() {
+    /**
+     * The version of this build, for every place that prints it ({@code --version}, {@code diag},
+     * the reports) : reading the MANIFEST directly gives nothing in the native binary (GitHub #1).
+     */
+    public static String resolveVersion() {
         String v = readVersion("/" + VERSION_RESOURCE);
         if (v == null) {
             v = BrumeVersionProvider.class.getPackage().getImplementationVersion();

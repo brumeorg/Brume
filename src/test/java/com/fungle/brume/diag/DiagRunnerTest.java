@@ -1,5 +1,6 @@
 package com.fungle.brume.diag;
 
+import com.fungle.brume.command.BrumeVersionProvider;
 import com.fungle.brume.diag.DiagRunner.DiagReport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -107,6 +108,17 @@ class DiagRunnerTest {
                 .isGreaterThanOrEqualTo(16);
         assertThat((int) report.config().get("brume.fpe-key.bytes"))
                 .isIn(16, 24, 32);
+    }
+
+    @Test
+    @DisplayName("GitHub #1 — diag prints the same version as --version, without the jar MANIFEST "
+            + "(absent from target/classes, as from the native binary) : never '0.0.1-SNAPSHOT'")
+    void diagReportVersionMatchesVersionProvider() {
+        DiagReport report = diagRunner.build();
+
+        assertThat(report.version())
+                .isEqualTo(BrumeVersionProvider.resolveVersion())
+                .matches("\\d+\\.\\d+.*");
     }
 
     @TestConfiguration

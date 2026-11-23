@@ -1,5 +1,6 @@
 package com.fungle.brume.report;
 
+import com.fungle.brume.command.BrumeVersionProvider;
 import com.fungle.brume.command.CommandEnum;
 import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.config.ReplicationProperties;
@@ -95,15 +96,12 @@ public record BrumeRuntimeContext(
     }
 
     /**
-     * Resolves the Brume version from the JAR manifest.
-     *
-     * <p>Returns {@code "dev"} when the implementation version is absent (typical when
-     * running from an IDE or unit tests).
+     * Resolves the Brume version via {@link BrumeVersionProvider}, the only source the native
+     * binary has (the JAR manifest read here before made the report footer print {@code "dev"}, GitHub #1).
      *
      * @return the version string or {@code "dev"}
      */
     private static String resolveBrumeVersion() {
-        String version = BrumeRuntimeContext.class.getPackage().getImplementationVersion();
-        return (version == null || version.isBlank()) ? DEV_VERSION : version;
+        return BrumeVersionProvider.resolveVersion();
     }
 }
