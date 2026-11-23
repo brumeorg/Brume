@@ -25,6 +25,9 @@ import static com.fungle.brume.command.CommandEnum.PLAN;
         name = "brume",
         mixinStandardHelpOptions = true,  // --help et --version auto
         versionProvider = BrumeVersionProvider.class,
+        // GitHub #4 : copies --help / --version to every subcommand — `brume audit --help` was an
+        // unknown option, while the usage error itself pointed to it.
+        scope = CommandLine.ScopeType.INHERIT,
         description = "Brume"
 )
 @Component
@@ -86,9 +89,14 @@ public class BrumeCommand implements Callable<Integer> {
     @CommandLine.Command(name = "init",
             description = "Bootstrap a new project : check pg_dump and create brume.yml + .env.brume from templates. "
                     + "Runs standalone (no Spring, no DB) — see ADR-0045.")
-    public Integer init() {
+    public Integer init(
+            @SuppressWarnings("unused")
+            @CommandLine.Parameters(arity = "0..1", paramLabel = "jdbc|dump",
+                    description = "Sink mode : jdbc (writes to a target Postgres DB) or dump "
+                            + "(writes a SQL file). Omit it to be prompted.") String mode) {
         // Never invoked in practice — BrumeApplication.main intercepts `init` before Spring boot.
-        // This stub exists only so `brume --help` lists the subcommand.
+        // This stub exists only so `brume --help` lists the subcommand, and so `brume init --help`
+        // (or `brume init jdbc --help`, answered here too) documents the sink mode.
         return 0;
     }
 

@@ -341,8 +341,10 @@ Brume measures the residual re-identification risk via k-anonymity (Sweeney 2002
 ```bash
 brume audit --anonymity \
   --quasi-id "users:birth_date,zip_code,gender" \
-  --report-format markdown
+  --output-markdown audit-report.md
 ```
+
+`--output-json <path>` writes the same report as JSON. `brume audit --help` lists every option (`--strict`, `--k-min`, `--sample-rate`, `--auto-detect-quasi-id`…).
 
 The report lists the **singleton classes** (unique rows = re-identifiable) and emits actionable recommendations. Designed to be handed to the DPO.
 
