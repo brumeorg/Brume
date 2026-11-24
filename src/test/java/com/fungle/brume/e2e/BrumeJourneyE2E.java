@@ -116,7 +116,7 @@ class BrumeJourneyE2E {
      * (or into the expected one) when #126b lands.
      */
     private static final Map<String, String> SCAN_EN_KNOWN_GAPS = orderedMap(
-            "users.address_json", "FAKE ADDRESS",   // JSONB column : needs FAKE JSONB + json_paths
+            "users.address_json", "FAKE ADDRESS",   // JSONB column : needs type JSONB + json_paths
             "users.company_name", "HASH");          // 'pan' (card number) matched inside "company"
 
     private static final Map<String, String> SCAN_FR_KNOWN_GAPS = orderedMap(

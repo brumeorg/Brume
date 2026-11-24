@@ -9,6 +9,7 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -53,6 +54,15 @@ class ReportsE2E {
     }
 
     @Test
+    @DisplayName("#127h, GitHub #1 — the JSON execution report carries the version of --version, not 'dev'")
+    void jsonReportCarriesTheBinaryVersion() throws IOException {
+        String version = project.run("--version").stdout().strip().replace("brume ", "");
+        JsonNode report = new ObjectMapper().readTree(project.file("reports/brume-execution-report.json").toFile());
+
+        assertThat(report.path("runtimeContext").path("brumeVersion").asText()).isEqualTo(version);
+    }
+
+    @Test
     @DisplayName("HTML execution report : headline, every section and every table rendered")
     void htmlExecutionReport() throws IOException {
         int total = planned.values().stream().mapToInt(Integer::intValue).sum();
@@ -63,6 +73,18 @@ class ReportsE2E {
                 .contains("Durées par phase", "Résultats par table", "Plan vs Réel", "Stratégies appliquées")
                 .contains(TABLES)
                 .doesNotContain("th:text").doesNotContain("${");
+    }
+
+    @Test
+    @DisplayName("#127h, GitHub #1 — both HTML reports print the version of --version, not 'dev'")
+    void htmlReportsPrintTheBinaryVersion() throws IOException {
+        String version = project.run("--version").stdout().strip().replace("brume ", "");
+
+        for (String report : List.of("reports/brume-execution-report.html", "reports/brume-plan-report.html")) {
+            assertThat(Files.readString(project.file(report))).as(report)
+                    .contains("<b>" + version + "</b>")
+                    .doesNotContain("<b>dev</b>");
+        }
     }
 
     @Test

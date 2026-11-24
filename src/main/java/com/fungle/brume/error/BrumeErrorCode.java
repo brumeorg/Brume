@@ -62,7 +62,13 @@ public enum BrumeErrorCode {
     /** A SQL identifier (table or column) does not match the PostgreSQL unquoted-identifier rules. */
     CONFIG_INVALID_IDENTIFIER,
 
-    /** A column with strategy {@code FAKE} is missing the required {@code SemanticType}. */
+    /** A column, or a {@code json_paths} entry, declares no {@code strategy} (#21e, GitHub #2). */
+    CONFIG_STRATEGY_MISSING,
+
+    /**
+     * A column, or a {@code json_paths} entry, with strategy {@code FAKE} is missing the
+     * required {@code SemanticType}.
+     */
     CONFIG_STRATEGY_REQUIRES_TYPE,
 
     /** A column with type {@code JSONB} is missing the required {@code json_paths} list. */
@@ -178,6 +184,12 @@ public enum BrumeErrorCode {
 
     /** Warning only : {@code brume.faker-locale} ({@code BRUME_LOCALE}) is not a known language. */
     CONFIG_LOCALE_UNKNOWN,
+
+    /**
+     * Warning only : a {@code type: JSONB} column declares a {@code strategy}, which is never applied —
+     * each {@code json_paths} entry is anonymized with its own (ADR-0065).
+     */
+    CONFIG_JSONB_STRATEGY_IGNORED,
 
     // ---------------------------------------------------------------------
     // Connection (exit code 2)

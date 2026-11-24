@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Settings that change the pseudonymized values (#127e) : the Datafaker locale and the HMAC
  * algorithm (resolved through the JCA providers, which a native image must embed), plus the
- * warnings for a setting Brume ignores (#17g).
+ * warnings for a setting Brume ignores (#17g), such as the strategy of a JSONB column (ADR-0065).
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ConfigVariantsE2E {
@@ -81,5 +81,25 @@ class ConfigVariantsE2E {
                 .contains("[CONFIG_UNKNOWN_KEY]").contains("'fk_dpeth' under 'extraction'")
                 .contains("'unknown_section'")
                 .contains("[CONFIG_LOCALE_UNKNOWN]").contains("'xx'");
+    }
+
+    @Test
+    @DisplayName("#21e, ADR-0065 — a JSONB column without strategy is anonymized path by path ; "
+            + "a declared one is reported as ignored, the run goes on")
+    void jsonbColumnStrategyIsOptional() {
+        project.configureEnv("e2e_en");
+        project.removeEnv("BRUME_HMAC_ALGORITHM");
+        // The reference config : users.address_json without strategy, audit_logs.payload with 'strategy: FAKE'.
+        project.useConfig(config);
+
+        BrumeCli.Result result = project.run("execute");
+
+        assertThat(result.exitCode()).as(result.describe()).isZero();
+        assertThat(result.stdout())
+                .contains("[CONFIG_JSONB_STRATEGY_IGNORED] Column 'audit_logs.payload'", "'strategy: FAKE' is ignored")
+                .doesNotContain("Column 'users.address_json' has type JSONB");
+        String street = "SELECT address_json->>'street' FROM e2e_en.users ORDER BY id";
+        assertThat(target.queryForList(street, String.class)).isNotEmpty().doesNotContainNull()
+                .doesNotContainAnyElementsOf(E2eSettings.source().jdbc().queryForList(street, String.class));
     }
 }

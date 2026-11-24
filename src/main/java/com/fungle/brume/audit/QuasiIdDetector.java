@@ -4,6 +4,7 @@ import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.config.BrumeProperties.AuditProperties;
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
+import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
 import com.fungle.brume.report.QuasiIdWarning;
@@ -96,7 +97,7 @@ public class QuasiIdDetector {
         List<String> patterns = audit.quasiIdPatterns();
         Set<Strategy> neutralizing = audit.neutralizingStrategies();
 
-        Map<String, Strategy> ruleIndex = buildRuleIndex(config);
+        Map<String, ColumnConfig> ruleIndex = buildRuleIndex(config);
         List<QuasiIdWarning> warnings = new ArrayList<>();
 
         for (TableMetadata tableMeta : schema.tables().values()) {
@@ -111,7 +112,10 @@ public class QuasiIdDetector {
                         columnName.toLowerCase(Locale.ROOT), patterns);
                 if (matchedPattern == null) continue;
 
-                Strategy effective = ruleIndex.get(tableName + "." + columnName);
+                ColumnConfig rule = ruleIndex.get(tableName + "." + columnName);
+                // ADR-0065 : a JSONB column is anonymized path by path, its own strategy is never applied.
+                if (rule != null && rule.type() == SemanticType.JSONB) continue;
+                Strategy effective = rule == null ? null : rule.strategy();
 
                 if (effective == null) {
                     // No explicit rule = KEEP implicit. PiiDetector already handles text
@@ -136,17 +140,17 @@ public class QuasiIdDetector {
     }
 
     /**
-     * Indexes {@code "table.column" → Strategy} from the post-propagation config.
+     * Indexes {@code "table.column" → rule} from the post-propagation config.
      */
-    private Map<String, Strategy> buildRuleIndex(AnonymizerConfig config) {
-        Map<String, Strategy> index = new HashMap<>();
+    private Map<String, ColumnConfig> buildRuleIndex(AnonymizerConfig config) {
+        Map<String, ColumnConfig> index = new HashMap<>();
         if (config.anonymization() == null || config.anonymization().tables() == null) {
             return index;
         }
         for (TableAnonymizationConfig table : config.anonymization().tables()) {
             if (table.columns() == null) continue;
             for (ColumnConfig col : table.columns()) {
-                index.put(table.table() + "." + col.name(), col.strategy());
+                index.put(table.table() + "." + col.name(), col);
             }
         }
         return index;

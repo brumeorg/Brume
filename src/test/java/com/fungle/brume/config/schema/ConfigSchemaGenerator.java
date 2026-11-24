@@ -1,5 +1,7 @@
 package com.fungle.brume.config.schema;
 
+import com.fasterxml.jackson.core.util.DefaultIndenter;
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -71,7 +73,7 @@ public final class ConfigSchemaGenerator {
             Map.entry(TableAnonymizationConfig.class,
                     "Anonymization rules for all columns of one table."),
             Map.entry(ColumnConfig.class,
-                    "Anonymization rule for a single column. The 'type' field is required when strategy=FAKE."),
+                    "Anonymization rule for a single column. The 'type' field is required when strategy=FAKE. A type=JSONB column takes json_paths instead of a strategy."),
             Map.entry(ColumnReference.class,
                     "Reference to a column by (table, column) name. Used inside linked_columns."),
             Map.entry(JsonPathConfig.class,
@@ -128,7 +130,7 @@ public final class ConfigSchemaGenerator {
             )),
             Map.entry(ColumnConfig.class, Map.ofEntries(
                     Map.entry("name", "Column name as it appears in the database schema."),
-                    Map.entry("strategy", "Anonymization strategy to apply to this column."),
+                    Map.entry("strategy", "Anonymization strategy to apply to this column. Required, except for type=JSONB : a JSONB column is anonymized path by path (see json_paths) and its own strategy is ignored."),
                     Map.entry("type", "Semantic type — required when strategy=FAKE, optional/ignored for HASH/NULLIFY/KEEP/FPE_ID/FPE_UUID. Use JSONB to anonymize specific paths inside a JSON column (see json_paths)."),
                     Map.entry("jsonPaths", "Per-path anonymization rules for this column. Required when type=JSONB; ignored otherwise."),
                     Map.entry("minYear", "Lower bound (inclusive) of the year range for strategy=FAKE + type=DATE. Set together with max_year. Default: 1935."),
@@ -136,8 +138,8 @@ public final class ConfigSchemaGenerator {
             )),
             Map.entry(JsonPathConfig.class, Map.ofEntries(
                     Map.entry("path", "JSONPath expression starting with $ — e.g. \"$.user.email\" or \"$.metadata.session.token\"."),
-                    Map.entry("type", "Semantic type of the targeted JSON field."),
-                    Map.entry("strategy", "Anonymization strategy applied to that field.")
+                    Map.entry("type", "Semantic type of the targeted JSON field — required when strategy=FAKE."),
+                    Map.entry("strategy", "Anonymization strategy applied to that field. Required : it is not inherited from the column.")
             ))
     );
 
@@ -171,9 +173,13 @@ public final class ConfigSchemaGenerator {
         backfillFieldDescriptions(schema);
         ObjectNode decorated = decorate(schema);
 
+        // #20d : the default pretty printer ends lines with System.lineSeparator(), CRLF on Windows,
+        // while config.schema.json is checked out in LF (.gitattributes) : always write LF.
+        DefaultPrettyPrinter printer = new DefaultPrettyPrinter()
+                .withObjectIndenter(new DefaultIndenter("  ", "\n"));
         ObjectMapper mapper = new ObjectMapper();
         try {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(decorated) + "\n";
+            return mapper.writer(printer).writeValueAsString(decorated) + "\n";
         } catch (Exception e) {
             throw new IllegalStateException("Failed to serialize generated schema", e);
         }

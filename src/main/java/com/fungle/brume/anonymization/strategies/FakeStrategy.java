@@ -106,7 +106,18 @@ public final class FakeStrategy implements AnonymizationStrategy {
         // HmacSeeder already lowercases internally, so seed derivation was already consistent;
         // this fix closes the gap on the dictionary-key side.
         String normalized = value.toString().toLowerCase();
-        return dict.getOrCreate(semanticKey, normalized, () -> generate(normalized, type));
+        return dict.getOrCreate(semanticKey, dictValue(type, normalized), () -> generate(normalized, type));
+    }
+
+    /**
+     * #79j — the fake depends on the type, so the dictionary entry must too : the leaves of a JSONB
+     * column share its semantic key (#79b), as do linked columns. Keyed on the value alone, a
+     * {@code $.nom} equal to an earlier {@code $.prenom} got the FIRST_NAME fake. NUL separator as in
+     * {@link SubstitutionDictionary#buildLongKey} (#79c). Only the dictionary key changes : the
+     * generated value never depended on it, so outputs change only where that collision occurred.
+     */
+    private static String dictValue(SemanticType type, String normalized) {
+        return type + "\0" + normalized;
     }
 
     /**
@@ -264,7 +275,7 @@ public final class FakeStrategy implements AnonymizationStrategy {
         int min = minYear != null ? minYear : DEFAULT_DATE_MIN_YEAR;
         int max = maxYear != null ? maxYear : DEFAULT_DATE_MAX_YEAR;
         String normalized = value.toString().toLowerCase();
-        return dict.getOrCreate(semanticKey, normalized, () -> {
+        return dict.getOrCreate(semanticKey, dictValue(SemanticType.DATE, normalized), () -> {
             try {
                 long seed = HmacSeeder.seedFrom(normalized, brumeProperties.hmacSecret(), brumeProperties.hmacAlgorithm());
                 return generateDateIsoString(seed, min, max);

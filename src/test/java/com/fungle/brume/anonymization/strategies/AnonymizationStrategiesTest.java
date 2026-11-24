@@ -5,6 +5,7 @@ import com.fungle.brume.anonymization.SubstitutionDictionary;
 import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.config.model.SemanticType;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -122,6 +123,19 @@ class AnonymizationStrategiesTest {
             SubstitutionDictionary freshDict = new SubstitutionDictionary(brumeProperties);
             Object r2 = strategy.anonymize("real@example.com", SemanticType.EMAIL, "users.email", freshDict);
             assertThat(r1).isEqualTo(r2);
+        }
+
+        @Test
+        @DisplayName("#79j — same value, same semantic key, two types (two leaves of a JSONB column) : "
+                + "each gets the fake of its own type, not the first one cached")
+        void anonymize_sameValueUnderOneSemanticKey_isFakedPerType() {
+            Object firstName = strategy.anonymize("Martin", SemanticType.FIRST_NAME, "clients.data", dictionary);
+            Object lastName = strategy.anonymize("Martin", SemanticType.LAST_NAME, "clients.data", dictionary);
+
+            SubstitutionDictionary freshDict = new SubstitutionDictionary(brumeProperties);
+            assertThat(lastName)
+                    .isEqualTo(strategy.anonymize("Martin", SemanticType.LAST_NAME, "clients.nom", freshDict))
+                    .isNotEqualTo(firstName);
         }
 
         // --- FIX 1: Case normalization ---

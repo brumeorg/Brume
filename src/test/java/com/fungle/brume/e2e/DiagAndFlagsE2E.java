@@ -6,10 +6,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,6 +60,37 @@ class DiagAndFlagsE2E {
         assertThat(result.stdout()).doesNotContain(" INFO ");
     }
 
+    /**
+     * {@code -h} on audit, {@code --help} elsewhere : {@code BrumeApplication.main} intercepts both before
+     * Spring. {@code audit --help} stays covered by {@link #usageErrorPointsToAWorkingHelp()}.
+     */
+    static Stream<Arguments> subcommands() {
+        return SUBCOMMANDS.stream().map(sub -> Arguments.of(sub, sub.equals("audit") ? "-h" : "--help"));
+    }
+
+    @ParameterizedTest(name = "brume {0} {1}")
+    @MethodSource("subcommands")
+    @DisplayName("#17h, GitHub #4 — every subcommand answers --help / -h with its own usage, exit 0, without booting Spring")
+    void subcommandHelp(String subcommand, String flag) {
+        BrumeCli.Result result = project.run(subcommand, flag);
+
+        assertThat(result.exitCode()).as(result.describe()).isZero();
+        assertThat(result.stdout()).startsWith("Usage: brume " + subcommand).doesNotContain(" INFO ");
+    }
+
+    @Test
+    @DisplayName("#17h, GitHub #4 — the --help a usage error points to works, and lists the real audit options")
+    void usageErrorPointsToAWorkingHelp() {
+        BrumeCli.Result error = project.run("audit", "--report-format", "markdown");
+        Matcher suggested = Pattern.compile("Run 'brume ([^']+)'").matcher(error.stderr());
+        assertThat(suggested.find()).as("usage error suggests a command\n" + error.describe()).isTrue();
+
+        BrumeCli.Result help = project.run(suggested.group(1).split(" "));
+
+        assertThat(help.exitCode()).as(help.describe()).isZero();
+        assertThat(help.stdout()).startsWith("Usage: brume audit").contains("--output-markdown", "--output-json");
+    }
+
     @Test
     @DisplayName("diag : every critical bean wired, exit 0")
     void diagText() {
@@ -76,6 +113,19 @@ class DiagAndFlagsE2E {
                 .as(b.path("name").asText()).isTrue());
         assertThat(diag.path("config").path("replication.schema").asText()).isEqualTo("e2e_en");
         assertThat(diag.path("sourcePool").path("total").asInt()).as("source connections opened by diag").isZero();
+    }
+
+    @Test
+    @DisplayName("#127h, GitHub #1 — diag prints the version of --version, in text and JSON "
+            + "(the native binary printed '0.0.1-SNAPSHOT')")
+    void diagPrintsTheBinaryVersion() throws IOException {
+        String version = project.run("--version").stdout().strip().replace("brume ", "");
+
+        BrumeCli.Result text = project.run("diag");
+        BrumeCli.Result jsonResult = project.run("diag", "--json");
+
+        assertThat(text.stdout()).as(text.describe()).contains("Brume " + version + " — diagnostic");
+        assertThat(json.readTree(jsonResult.stdout()).path("version").asText()).isEqualTo(version);
     }
 
     @Test

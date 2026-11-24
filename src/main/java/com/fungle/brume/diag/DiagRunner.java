@@ -2,6 +2,7 @@ package com.fungle.brume.diag;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fungle.brume.command.BrumeVersionProvider;
 import com.fungle.brume.config.BrumeProperties;
 import com.fungle.brume.config.ReplicationProperties;
 import com.fungle.brume.output.OutputMode;
@@ -109,8 +110,8 @@ public class DiagRunner {
     }
 
     private String brumeVersion() {
-        String impl = getClass().getPackage().getImplementationVersion();
-        return impl != null ? impl : "0.0.1-SNAPSHOT";
+        // #127h, GitHub #1 : the MANIFEST is absent from the native binary, which printed "0.0.1-SNAPSHOT".
+        return BrumeVersionProvider.resolveVersion();
     }
 
     private List<BeanStatus> inspectBeans() {

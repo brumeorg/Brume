@@ -79,8 +79,8 @@ anonymization:
           strategy: MASK
           type: IP_ADDRESS
 
+        # JSONB: no strategy on the column, each json_paths entry carries its own.
         - name: address_json
-          strategy: FAKE
           type: JSONB
           json_paths:
             - path: "$.street"
@@ -187,7 +187,6 @@ anonymization:
           # linked_columns -> same masked value as users.ip_address
 
         - name: payload
-          strategy: FAKE
           type: JSONB
           json_paths:
             - path: "$.user.email"

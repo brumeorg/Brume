@@ -106,8 +106,10 @@ public class SchemaConfigValidator {
                                     : didYouMean.trim() + " Otherwise, remove the entry or pick a "
                                             + "column that exists in the source schema.");
                 }
-                requireNullableForNullify(table.table(), colMeta, col);
-                requireInjectiveOnUnique(table.table(), meta, col);
+                if (col.type() != SemanticType.JSONB) {   // its own strategy is never applied (ADR-0065)
+                    requireNullableForNullify(table.table(), colMeta, col);
+                    requireInjectiveOnUnique(table.table(), meta, col);
+                }
                 checkTypeStrategyFit(table.table(), colMeta, col, strict);
             }
         }
@@ -227,57 +229,58 @@ public class SchemaConfigValidator {
         TypeFamily family = categorize(colMeta.dataType());
         String ref = tableName + "." + col.name();
 
-        Verdict verdict = switch (strategy) {
-            case FPE_ID -> switch (family) {
-                case NUMERIC -> Verdict.OK;
-                case STRING  -> Verdict.SUSPECT;
-                default      -> Verdict.INCOMPATIBLE;
-            };
-            case FPE_UUID -> switch (family) {
-                case UUID    -> Verdict.OK;
-                case STRING  -> Verdict.SUSPECT;
-                default      -> Verdict.INCOMPATIBLE;
-            };
-            case HASH -> switch (family) {
-                case STRING  -> Verdict.OK;
-                case JSON    -> Verdict.INCOMPATIBLE;
-                default      -> Verdict.SUSPECT;
-            };
-            case FAKE -> {
-                if (col.type() == SemanticType.JSONB) {
-                    yield (family == TypeFamily.JSON) ? Verdict.OK : Verdict.INCOMPATIBLE;
-                }
-                if (col.type() == SemanticType.DATE) {
-                    // FAKE(DATE) returns an ISO date string → OK on temporal and string columns ;
-                    // other families would reject the value at write time.
-                    yield switch (family) {
-                        case TEMPORAL, STRING -> Verdict.OK;
-                        default               -> Verdict.INCOMPATIBLE;
+        // ADR-0065 : a JSONB column is anonymized path by path, whatever its own strategy (optional).
+        Verdict verdict = col.type() == SemanticType.JSONB
+                ? (family == TypeFamily.JSON ? Verdict.OK : Verdict.INCOMPATIBLE)
+                : switch (strategy) {
+                    case FPE_ID -> switch (family) {
+                        case NUMERIC -> Verdict.OK;
+                        case STRING  -> Verdict.SUSPECT;
+                        default      -> Verdict.INCOMPATIBLE;
                     };
-                }
-                yield switch (family) {
-                    case STRING -> Verdict.OK;
-                    default     -> Verdict.INCOMPATIBLE;
+                    case FPE_UUID -> switch (family) {
+                        case UUID    -> Verdict.OK;
+                        case STRING  -> Verdict.SUSPECT;
+                        default      -> Verdict.INCOMPATIBLE;
+                    };
+                    case HASH -> switch (family) {
+                        case STRING  -> Verdict.OK;
+                        case JSON    -> Verdict.INCOMPATIBLE;
+                        default      -> Verdict.SUSPECT;
+                    };
+                    case FAKE -> {
+                        if (col.type() == SemanticType.DATE) {
+                            // FAKE(DATE) returns an ISO date string → OK on temporal and string columns ;
+                            // other families would reject the value at write time.
+                            yield switch (family) {
+                                case TEMPORAL, STRING -> Verdict.OK;
+                                default               -> Verdict.INCOMPATIBLE;
+                            };
+                        }
+                        yield switch (family) {
+                            case STRING -> Verdict.OK;
+                            default     -> Verdict.INCOMPATIBLE;
+                        };
+                    }
+                    case MASK -> switch (family) {
+                        case STRING  -> Verdict.OK;
+                        case NUMERIC -> Verdict.SUSPECT;
+                        default      -> Verdict.INCOMPATIBLE;
+                    };
+                    case DATE_SHIFT -> switch (family) {
+                        case TEMPORAL -> Verdict.OK;
+                        case STRING   -> Verdict.SUSPECT;  // ISO string in a text column — works but unusual
+                        default       -> Verdict.INCOMPATIBLE;
+                    };
+                    case NULLIFY, KEEP -> Verdict.OK;
                 };
-            }
-            case MASK -> switch (family) {
-                case STRING  -> Verdict.OK;
-                case NUMERIC -> Verdict.SUSPECT;
-                default      -> Verdict.INCOMPATIBLE;
-            };
-            case DATE_SHIFT -> switch (family) {
-                case TEMPORAL -> Verdict.OK;
-                case STRING   -> Verdict.SUSPECT;  // ISO string in a text column — works but unusual
-                default       -> Verdict.INCOMPATIBLE;
-            };
-            case NULLIFY, KEEP -> Verdict.OK;
-        };
 
         if (verdict == Verdict.OK) return;
 
+        String rule = col.type() == SemanticType.JSONB ? "type JSONB"
+                : "strategy " + strategy + (col.type() != null ? " (semantic type " + col.type() + ")" : "");
         String message = "Column '" + ref + "' has PostgreSQL type '" + colMeta.dataType()
-                + "' but uses strategy " + strategy
-                + (col.type() != null ? " (semantic type " + col.type() + ")" : "")
+                + "' but uses " + rule
                 + " — "
                 + (verdict == Verdict.INCOMPATIBLE
                     ? "this combination is unlikely to produce a valid value at runtime."

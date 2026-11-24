@@ -57,14 +57,14 @@
         },
         "strategy" : {
           "$ref" : "#/$defs/Strategy-nullable",
-          "description" : "Anonymization strategy to apply to this column."
+          "description" : "Anonymization strategy to apply to this column. Required, except for type=JSONB : a JSONB column is anonymized path by path (see json_paths) and its own strategy is ignored."
         },
         "type" : {
           "$ref" : "#/$defs/SemanticType-nullable",
           "description" : "Semantic type — required when strategy=FAKE, optional/ignored for HASH/NULLIFY/KEEP/FPE_ID/FPE_UUID. Use JSONB to anonymize specific paths inside a JSON column (see json_paths)."
         }
       },
-      "description" : "Anonymization rule for a single column. The 'type' field is required when strategy=FAKE.",
+      "description" : "Anonymization rule for a single column. The 'type' field is required when strategy=FAKE. A type=JSONB column takes json_paths instead of a strategy.",
       "additionalProperties" : false
     },
     "ColumnReference" : {
@@ -132,11 +132,11 @@
         },
         "strategy" : {
           "$ref" : "#/$defs/Strategy-nullable",
-          "description" : "Anonymization strategy applied to that field."
+          "description" : "Anonymization strategy applied to that field. Required : it is not inherited from the column."
         },
         "type" : {
           "$ref" : "#/$defs/SemanticType-nullable",
-          "description" : "Semantic type of the targeted JSON field."
+          "description" : "Semantic type of the targeted JSON field — required when strategy=FAKE."
         }
       },
       "description" : "Anonymization rule for one path inside a JSONB column.",

@@ -58,8 +58,8 @@ anonymization:
         - name: ip_address
           strategy: MASK
           type: IP_ADDRESS
+        # No strategy on a JSONB column (ADR-0065) ; audit_logs.payload keeps the 2.x form, reported as ignored.
         - name: address_json
-          strategy: FAKE
           type: JSONB
           json_paths:
             - path: "$.street"

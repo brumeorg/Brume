@@ -111,6 +111,13 @@ class ErrorExitsE2E {
                     }
                 }, "execute", 1, "CONFIG_FILE_NOT_FOUND"),
                 of("unknown strategy in brume.yml (#17g)", p -> replaceInConfig(p, "strategy: FAKE", "strategy: NOPE"), "execute", 1, "CONFIG_FILE_PARSE_ERROR"),
+                // GitHub #2 : these three failed mid-run with a NullPointerException ([UNEXPECTED], exit 127)
+                of("column without strategy (#21e)", p -> replaceInConfig(p, "\n          strategy: NULLIFY", ""),
+                        "execute", 1, "CONFIG_STRATEGY_MISSING"),
+                of("json_paths entry without strategy (#21e)", p -> replaceInConfig(p, "\n              strategy: HASH", ""),
+                        "plan", 1, "CONFIG_STRATEGY_MISSING"),
+                of("json_paths FAKE without type (#21e)", p -> replaceInConfig(p, "\n              type: EMAIL", ""),
+                        "execute", 1, "CONFIG_STRATEGY_REQUIRES_TYPE"),
                 of("filter on a missing column (#17e)", p -> replaceInConfig(p, "created_at >= '2025-01-01'",
                         "no_such_column = 1"), "execute", 1, "CONFIG_EXTRACTION_FILTER_INVALID"),
                 of("filter on a missing column, plan (#17e)", p -> replaceInConfig(p, "created_at >= '2025-01-01'",

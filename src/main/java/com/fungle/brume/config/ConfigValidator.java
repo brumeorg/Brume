@@ -2,6 +2,7 @@ package com.fungle.brume.config;
 
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
+import com.fungle.brume.config.model.JsonPathConfig;
 import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
@@ -11,7 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Validates an {@link AnonymizerConfig} for semantic correctness before the replication
@@ -25,10 +28,12 @@ import java.util.List;
  *   <li>{@code extraction.tables} must not be empty — protects against accidental full-DB copy</li>
  *   <li>Every {@code extraction.tables[].filter} passes {@link ExtractionFilterValidator}
  *       (anti SQL-injection denylist heuristic — see ADR-0017)</li>
+ *   <li>Every column must declare a {@link Strategy}, except a {@link SemanticType#JSONB} column</li>
  *   <li>Every column with strategy {@link Strategy#FAKE} must declare a non-null
  *       {@link SemanticType}</li>
  *   <li>Every column with type {@link SemanticType#JSONB} must declare a non-empty
- *       {@code jsonPaths} list</li>
+ *       {@code jsonPaths} list, whose entries follow the two rules above. Its own strategy is
+ *       never applied : declared, it is reported as ignored (ADR-0065)</li>
  * </ul>
  */
 @Component
@@ -39,6 +44,9 @@ public class ConfigValidator {
     private static final String IDENTIFIER_RULE_HINT =
             "Write table and column names exactly as stored in PostgreSQL (case, accents and "
                     + "spaces included, without double quotes) : 1 to 63 bytes in UTF-8, no NUL character.";
+
+    private static final String STRATEGY_LIST = Arrays.stream(Strategy.values())
+            .map(Strategy::name).collect(Collectors.joining(", "));
 
     /**
      * Validates the given configuration.
@@ -165,6 +173,22 @@ public class ConfigValidator {
     private void validateColumn(String tableName, ColumnConfig col) {
         String ref = tableName + "." + col.name();
 
+        if (col.type() == SemanticType.JSONB) {
+            validateJsonbColumn(ref, col);
+            validateDateRange(col, ref);
+            return;
+        }
+
+        // #21e, GitHub #2 : a missing strategy reached StrategyResolver as a null key (NullPointerException
+        // mid-run, target left half-written).
+        if (col.strategy() == null) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_STRATEGY_MISSING,
+                    "Column '" + ref + "' has no 'strategy' declared",
+                    "Add a strategy (" + STRATEGY_LIST + ") — e.g. 'strategy: HASH'. "
+                            + "Use KEEP to copy the column unchanged.");
+        }
+
         // FAKE strategy requires a semantic type to know what kind of data to generate
         if (col.strategy() == Strategy.FAKE && col.type() == null) {
             throw new ConfigurationException(
@@ -175,19 +199,57 @@ public class ConfigValidator {
                             + "a type (HASH, MASK, NULLIFY, KEEP).");
         }
 
-        // JSONB type requires json_paths to know which nested fields to anonymize
-        if (col.type() == SemanticType.JSONB) {
-            if (col.jsonPaths() == null || col.jsonPaths().isEmpty()) {
+        validateDateRange(col, ref);
+    }
+
+    /**
+     * A JSONB column is anonymized path by path (ADR-0065) : it needs {@code json_paths}, each entry with
+     * its own strategy. The column's own strategy is never applied, so it is optional, and reported as
+     * ignored when declared — {@code NULLIFY} there does not empty the column.
+     */
+    private void validateJsonbColumn(String ref, ColumnConfig col) {
+        if (col.jsonPaths() == null || col.jsonPaths().isEmpty()) {
+            throw new ConfigurationException(
+                    BrumeErrorCode.CONFIG_JSONB_REQUIRES_JSON_PATHS,
+                    "Column '" + ref + "' has type JSONB but no 'json_paths' declared",
+                    "Add at least one entry under 'json_paths' to specify which JSON "
+                            + "fields to anonymize (e.g. '- path: $.email\\n  type: EMAIL\\n  "
+                            + "strategy: FAKE').");
+        }
+        validateJsonPaths(ref, col.jsonPaths());
+        if (col.strategy() != null) {
+            log.warn("[CONFIG_JSONB_STRATEGY_IGNORED] Column '{}' has type JSONB : its 'strategy: {}' is ignored, "
+                    + "each json_paths entry is anonymized with its own strategy. Remove it from the column.",
+                    ref, col.strategy());
+        }
+    }
+
+    /**
+     * Validates the {@code json_paths} entries of a JSONB column (#21e, GitHub #2) : each one is anonymized
+     * on its own, so it needs its own strategy — and a type when that strategy is FAKE. Nothing
+     * was checked here before : the run failed on the first row with a NullPointerException.
+     */
+    private void validateJsonPaths(String ref, List<JsonPathConfig> jsonPaths) {
+        for (int i = 0; i < jsonPaths.size(); i++) {
+            JsonPathConfig entry = jsonPaths.get(i);
+            String entryRef = "Column '" + ref + "', json_paths[" + i + "]"
+                    + (entry.path() != null ? " (" + entry.path() + ")" : "");
+            if (entry.strategy() == null) {
                 throw new ConfigurationException(
-                        BrumeErrorCode.CONFIG_JSONB_REQUIRES_JSON_PATHS,
-                        "Column '" + ref + "' has type JSONB but no 'json_paths' declared",
-                        "Add at least one entry under 'json_paths' to specify which JSON "
-                                + "fields to anonymize (e.g. '- path: $.email\\n  type: EMAIL\\n  "
-                                + "strategy: FAKE').");
+                        BrumeErrorCode.CONFIG_STRATEGY_MISSING,
+                        entryRef + " has no 'strategy' declared",
+                        "Each json_paths entry needs its own strategy (" + STRATEGY_LIST + ") — "
+                                + "e.g. 'strategy: FAKE' with 'type: LAST_NAME'.");
+            }
+            if (entry.strategy() == Strategy.FAKE && entry.type() == null) {
+                throw new ConfigurationException(
+                        BrumeErrorCode.CONFIG_STRATEGY_REQUIRES_TYPE,
+                        entryRef + " uses strategy FAKE but has no 'type' declared",
+                        "Add a SemanticType (e.g. 'type: EMAIL') to tell Brume what kind of "
+                                + "fake data to generate, or switch to a strategy that does not need "
+                                + "a type (HASH, MASK, NULLIFY, KEEP).");
             }
         }
-
-        validateDateRange(col, ref);
     }
 
     /**

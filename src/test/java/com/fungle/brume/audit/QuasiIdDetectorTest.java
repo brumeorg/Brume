@@ -6,6 +6,8 @@ import com.fungle.brume.config.model.AnonymizationConfig;
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
 import com.fungle.brume.config.model.ExtractionConfig;
+import com.fungle.brume.config.model.JsonPathConfig;
+import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
 import com.fungle.brume.config.model.TableExtractionConfig;
@@ -281,6 +283,20 @@ class QuasiIdDetectorTest {
         assertThat(patterns).contains("naissance", "salaire", "civilite", "sexe");
         assertThat(AuditProperties.DEFAULT_NEUTRALIZING_STRATEGIES)
                 .containsExactlyInAnyOrder(Strategy.FAKE, Strategy.NULLIFY, Strategy.MASK);
+    }
+
+    @Test
+    @DisplayName("ADR-0065 — a JSONB column is skipped : anonymized path by path, it has no strategy of its own")
+    void jsonbColumnIsSkipped() {
+        DatabaseSchema schema = schemaWith("users",
+                new ColumnMetadata("birth_info", "jsonb", true),
+                new ColumnMetadata("postal_info", "jsonb", true));
+        List<JsonPathConfig> paths = List.of(new JsonPathConfig("$.date", SemanticType.DATE, Strategy.FAKE));
+        AnonymizerConfig config = configWith("users", List.of(
+                new ColumnConfig("birth_info", null, SemanticType.JSONB, paths),
+                new ColumnConfig("postal_info", Strategy.HASH, SemanticType.JSONB, paths)));
+
+        assertThat(detector(AuditProperties.defaults()).detect(schema, config, "test")).isEmpty();
     }
 
     // -------------------------------------------------------------------------

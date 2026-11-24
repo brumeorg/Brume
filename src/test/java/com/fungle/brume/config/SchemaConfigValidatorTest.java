@@ -5,6 +5,7 @@ import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
 import com.fungle.brume.config.model.ColumnReference;
 import com.fungle.brume.config.model.ExtractionConfig;
+import com.fungle.brume.config.model.JsonPathConfig;
 import com.fungle.brume.config.model.LinkedColumnsConfig;
 import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
@@ -435,8 +436,57 @@ class SchemaConfigValidatorTest {
     }
 
     // -------------------------------------------------------------------------
+    // ADR-0065 — a JSONB column is anonymized path by path : its own strategy is optional, never applied
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("ADR-0065 — a JSONB column without strategy passes, strict included")
+    void jsonbColumnWithoutStrategyPasses() {
+        AnonymizerConfig config = config(
+                extraction("users"),
+                anonymization(tableRules("users", jsonbRule("address_json", null)))
+        );
+        DatabaseSchema schema = schema(table("users", col("address_json", "jsonb")));
+
+        assertThatCode(() -> validator.validate(config, schema, true)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("ADR-0065 — the ignored strategy of a JSONB column is not checked : NULLIFY on NOT NULL, HASH under strict")
+    void jsonbColumnStrategyIsNotChecked() {
+        AnonymizerConfig config = config(
+                extraction("users"),
+                anonymization(tableRules("users",
+                        jsonbRule("address_json", Strategy.NULLIFY), jsonbRule("payload", Strategy.HASH)))
+        );
+        DatabaseSchema schema = schema(table("users",
+                new ColumnMetadata("address_json", "jsonb", false), col("payload", "jsonb")));
+
+        assertThatCode(() -> validator.validate(config, schema, true)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("ADR-0065 — type JSONB on a text column stays incompatible, without strategy too")
+    void jsonbTypeOnTextColumnIsIncompatible() {
+        AnonymizerConfig config = config(
+                extraction("users"),
+                anonymization(tableRules("users", jsonbRule("address_json", null)))
+        );
+        DatabaseSchema schema = schema(table("users", col("address_json", "text")));
+
+        assertThatThrownBy(() -> validator.validate(config, schema, true))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("'users.address_json' has PostgreSQL type 'text' but uses type JSONB —");
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private static ColumnConfig jsonbRule(String name, Strategy strategy) {
+        return new ColumnConfig(name, strategy, SemanticType.JSONB,
+                List.of(new JsonPathConfig("$.zip", SemanticType.ADDRESS, Strategy.HASH)));
+    }
 
     private static ColumnConfig col(String name, Strategy strategy) {
         return new ColumnConfig(name, strategy, null, null);

@@ -3,6 +3,7 @@ package com.fungle.brume.state;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
+import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,7 @@ public class ExecutionStateWriter {
                 columns.add(new ColumnState(
                         table.table(),
                         col.name(),
-                        col.strategy().name(),
+                        strategyOf(col),
                         col.type() != null ? col.type().name() : null
                 ));
             }
@@ -66,5 +67,14 @@ public class ExecutionStateWriter {
         } catch (IOException e) {
             log.warn("Failed to write execution state to '{}': {}", STATE_FILE, e.getMessage());
         }
+    }
+
+    /**
+     * {@code JSONB} for a JSONB column, as in the execution report : it is anonymized path by path, its
+     * own strategy is optional and never applied (ADR-0065). Recording a declared one would let the audit
+     * treat the whole column as neutralized.
+     */
+    static String strategyOf(ColumnConfig col) {
+        return col.type() == SemanticType.JSONB ? SemanticType.JSONB.name() : col.strategy().name();
     }
 }

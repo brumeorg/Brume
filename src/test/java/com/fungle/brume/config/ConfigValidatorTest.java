@@ -1,5 +1,9 @@
 package com.fungle.brume.config;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fungle.brume.config.model.AnonymizationConfig;
 import com.fungle.brume.config.model.AnonymizerConfig;
 import com.fungle.brume.config.model.ColumnConfig;
@@ -9,11 +13,14 @@ import com.fungle.brume.config.model.SemanticType;
 import com.fungle.brume.config.model.Strategy;
 import com.fungle.brume.config.model.TableAnonymizationConfig;
 import com.fungle.brume.config.model.TableExtractionConfig;
+import com.fungle.brume.error.BrumeErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -178,6 +185,91 @@ class ConfigValidatorTest {
     void validate_doesNotThrow_whenJsonbTypeHasJsonPaths() {
         JsonPathConfig path = new JsonPathConfig("$.email", SemanticType.EMAIL, Strategy.FAKE);
         ColumnConfig valid = new ColumnConfig("payload", Strategy.FAKE, SemanticType.JSONB, List.of(path));
+        AnonymizerConfig config = configWithColumn("audit_logs", valid);
+
+        assertThatCode(() -> validator.validate(config)).doesNotThrowAnyException();
+    }
+
+    // -------------------------------------------------------------------------
+    // #21e, GitHub #2 — a missing strategy is a config error, not a NullPointerException mid-run
+    // -------------------------------------------------------------------------
+
+    @Test
+    void validate_throws_whenColumnHasNoStrategy() {
+        ColumnConfig invalid = new ColumnConfig("email", null, SemanticType.EMAIL, null);
+        AnonymizerConfig config = configWithColumn("users", invalid);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("users.email")
+                .hasMessageContaining("no 'strategy'")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(BrumeErrorCode.CONFIG_STRATEGY_MISSING);
+    }
+
+    // ADR-0065 : a JSONB column is anonymized path by path, its own strategy is never applied.
+    @Test
+    void validate_doesNotThrow_whenJsonbColumnHasNoStrategy() {
+        JsonPathConfig path = new JsonPathConfig("$.email", SemanticType.EMAIL, Strategy.FAKE);
+        ColumnConfig valid = new ColumnConfig("payload", null, SemanticType.JSONB, List.of(path));
+        AnonymizerConfig config = configWithColumn("audit_logs", valid);
+
+        assertThatCode(() -> validator.validate(config)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void validate_warnsThatTheStrategyOfAJsonbColumnIsIgnored() {
+        JsonPathConfig path = new JsonPathConfig("$.email", SemanticType.EMAIL, Strategy.FAKE);
+        ColumnConfig withStrategy = new ColumnConfig("payload", Strategy.NULLIFY, SemanticType.JSONB, List.of(path));
+        AnonymizerConfig config = configWithColumn("audit_logs", withStrategy);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        Logger logger = (Logger) LoggerFactory.getLogger(ConfigValidator.class);
+        logger.addAppender(appender);
+        try {
+            validator.validate(config);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list).anyMatch(ev -> ev.getLevel() == Level.WARN
+                && ev.getFormattedMessage().contains("[CONFIG_JSONB_STRATEGY_IGNORED] Column 'audit_logs.payload'")
+                && ev.getFormattedMessage().contains("'strategy: NULLIFY' is ignored"));
+    }
+
+    @Test
+    void validate_throws_whenJsonPathHasNoStrategy() {
+        // The issue's config : a json_paths entry with a type only, as on the semantic-types doc page.
+        JsonPathConfig keep = new JsonPathConfig("$.newsletter", null, Strategy.KEEP);
+        JsonPathConfig noStrategy = new JsonPathConfig("$.contact_urgence.nom", SemanticType.LAST_NAME, null);
+        ColumnConfig invalid = new ColumnConfig("preferences", Strategy.FAKE, SemanticType.JSONB,
+                List.of(keep, noStrategy));
+        AnonymizerConfig config = configWithColumn("clients", invalid);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("clients.preferences', json_paths[1] ($.contact_urgence.nom) has no 'strategy'")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(BrumeErrorCode.CONFIG_STRATEGY_MISSING);
+    }
+
+    @Test
+    void validate_throws_whenJsonPathUsesFakeWithoutType() {
+        JsonPathConfig noType = new JsonPathConfig("$.contact_urgence.tel", null, Strategy.FAKE);
+        ColumnConfig invalid = new ColumnConfig("preferences", Strategy.FAKE, SemanticType.JSONB, List.of(noType));
+        AnonymizerConfig config = configWithColumn("clients", invalid);
+
+        assertThatThrownBy(() -> validator.validate(config))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("json_paths[0] ($.contact_urgence.tel) uses strategy FAKE but has no 'type'")
+                .extracting(e -> ((ConfigurationException) e).code())
+                .isEqualTo(BrumeErrorCode.CONFIG_STRATEGY_REQUIRES_TYPE);
+    }
+
+    @Test
+    void validate_doesNotThrow_whenJsonPathUsesStrategyWithoutType() {
+        JsonPathConfig hash = new JsonPathConfig("$.token", null, Strategy.HASH);
+        ColumnConfig valid = new ColumnConfig("payload", Strategy.FAKE, SemanticType.JSONB, List.of(hash));
         AnonymizerConfig config = configWithColumn("audit_logs", valid);
 
         assertThatCode(() -> validator.validate(config)).doesNotThrowAnyException();
